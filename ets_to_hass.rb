@@ -37,9 +37,9 @@ class ConfigurationImporter
           ets_dpst_xstr:  e['DatapointType'],
           ets_addr_int:   e['Address'].to_i,
           ets_descr:      e['Description'],
-          p_group_name:   e['Name'], # knx group name
-          p_object_id:    e['Name'], # unique identifier of object which this group is about. e.g. kitchen.ceiling_light
-          p_ha_type:      'light', # home assistant type, by default assume light
+          p_group_name:   e['Name'], # linknx: group name (can be modified by special code)
+          p_object_id:    self.class.name_to_id(e['Name']), # ha and xknx: unique identifier of object which this group is about. e.g. kitchen.ceiling_light
+          p_ha_type:      'light',   # ha: object type, by default assume light
         }
         a=o[:ets_addr_int]
         o[:ets_addr_arr]=[(a>>12)&15,(a>>8)&15,a&255]
@@ -48,7 +48,7 @@ class ConfigurationImporter
         self.class.specific_processing_for_my_project(o)
 
         if o[:ets_dpst_xstr].nil?
-          puts "WARN: on datapoint type for #{o[:ets_addr_str]} : #{o[:ets_name]}, group is skipped"
+          puts "WARN: no datapoint type for #{o[:ets_addr_str]} : #{o[:ets_name]}, group is skipped"
         else
           if m = o[:ets_dpst_xstr].match(/^DPST-([0-9]+)-([0-9]+)$/)
             o[:ets_dpst_arr]=[m[1].to_i,m[2].to_i]
@@ -118,7 +118,7 @@ class ConfigurationImporter
       when '5.001'; 'group_address_brightness_state'
       end
       if address_attribute.nil?
-        puts "WARN: no mapping for group address: #{o[:ets_addr_str]} : #{o[:ets_name]}: #{o[:ets_dpst_str]}"
+        puts "WARN: no mapping for group address for type #{o[:ets_dpst_str]} : #{o[:ets_addr_str]} : #{o[:ets_name]}"
       else
         x[address_attribute]=o[:ets_addr_str]
       end
@@ -131,15 +131,9 @@ class ConfigurationImporter
   def linknx
     return @knx_groups.map do |o|
       linknx_id="id_#{o[:ets_addr_arr].join('_')}"
-      linknx_descr=o[:ets_name].gsub(':',' ').strip
-      linknx_type=case o[:ets_dpst_xstr]
-      when 'DPST-1-1'; '1.001'
-      when 'DPST-3-7'; '3.007'
-      when 'DPST-5-1'; '5.xxx'
-      when NilClass; puts "Error: no type for #{o} for #{o[:ets_addr_str]}"; '1.001'
-      else puts "Error: Unknown type #{o[:ets_dpst_xstr]} for #{o[:ets_addr_str]}"; '1.001'
-      end
-      %Q(        <object type="#{linknx_type}" id="#{linknx_id}" gad="#{o[:ets_addr_str]}" init="request">#{linknx_descr}</object>)
+      linknx_type=o[:ets_dpst_str]
+      linknx_type='5.xxx' if linknx_type.start_with?('5.')
+      %Q(        <object type="#{linknx_type}" id="#{linknx_id}" gad="#{o[:ets_addr_str]}" init="request">#{o[:p_group_name]}</object>)
     end.join("\n")
   end
 

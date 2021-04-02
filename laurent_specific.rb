@@ -7,8 +7,11 @@ class ConfigurationImporter
     object_location=parts[0]
     object_simple_name=parts[1]
     group_type=parts[2]
-    o[:p_object_id]=[object_location,object_simple_name].map{|i| i.gsub(/[^A-Za-z]+/,'_')}.join('.')
+    o[:p_object_id]=[object_location,object_simple_name].map{|i| name_to_id(i)}.join('.')
+    o[:p_group_name]=o[:p_group_name].gsub(':',' ').strip
+
     if o[:ets_dpst_xstr].nil?
+      puts "WARN: non datapoint type for #{o[:ets_addr_str]} : #{o[:ets_name]}"
       case group_type
       when 'ON/OFF'; o[:ets_dpst_xstr]='DPST-1-1'
       when 'variation'; o[:ets_dpst_xstr]='DPST-3-7'
@@ -21,7 +24,7 @@ class ConfigurationImporter
       # specific to me
       o[:ets_dpst_xstr]='DPST-1-1'
       # Pulse means push button, remove from name
-      o[:ets_name].gsub!(/:Pulse$/,'')
+      o[:p_group_name]=o[:p_group_name].gsub(/Pulse$/,'').strip
     end
     # TODO: find a common way to detect type
     # this part is specific to me: group 0 and 1 are lights, and 3/4 are switches
