@@ -1,14 +1,15 @@
 #!/usr/bin/env ruby
+# Laurent Martin
+# translate configuration from ETS into KNXWeb and Home Assistant
 require 'zip'
 require 'xmlsimple'
 require 'yaml'
 
 class ConfigurationImporter
   ETS_EXT='.knxproj'
-  attr_reader :knx_groups
-  def initialize(file)
+  private_constant :ETS_EXT
+  def initialize(file,lambdafile=nil)
     raise "ETS file must end with #{ETS_EXT}" unless file.end_with?(ETS_EXT)
-    @baseout=File.basename(file,ETS_EXT)
     @knx_groups=[]
     navigate=nil
     # read ETS5 file and get project file
@@ -34,7 +35,7 @@ class ConfigurationImporter
       addresses.each do |e|
         o={
           ets_name:       e['Name'],
-          ets_dpst_xstr:  e['DatapointType'],
+          ets_dpst_xstr:  e['DatapointType'], # datapoint type as string, from xml
           ets_addr_int:   e['Address'].to_i,
           ets_descr:      e['Description'],
           p_group_name:   e['Name'], # linknx: group name (can be modified by special code)
@@ -42,17 +43,17 @@ class ConfigurationImporter
           p_ha_type:      'light',   # ha: object type, by default assume light
         }
         a=o[:ets_addr_int]
-        o[:ets_addr_arr]=[(a>>12)&15,(a>>8)&15,a&255]
-        o[:ets_addr_str]=o[:ets_addr_arr].join("/")
+        o[:ets_addr_arr]=[(a>>12)&15,(a>>8)&15,a&255] # group address as array
+        o[:ets_addr_str]=o[:ets_addr_arr].join("/")   # group address as string
 
-        self.class.specific_processing_for_my_project(o)
+        eval(File.read(lambdafile)).call(o) unless lambdafile.nil?
 
         if o[:ets_dpst_xstr].nil?
-          puts "WARN: no datapoint type for #{o[:ets_addr_str]} : #{o[:ets_name]}, group is skipped"
+          puts "WARN: no datapoint type for #{o[:ets_addr_str]} : #{o[:ets_name]}, group address is skipped"
         else
           if m = o[:ets_dpst_xstr].match(/^DPST-([0-9]+)-([0-9]+)$/)
-            o[:ets_dpst_arr]=[m[1].to_i,m[2].to_i]
-            o[:ets_dpst_str]=sprintf("%d.%03d",o[:ets_dpst_arr].first,o[:ets_dpst_arr].last)
+            o[:ets_dpst_arr]=[m[1].to_i,m[2].to_i] # datapoint type as int array
+            o[:ets_dpst_str]=sprintf("%d.%03d",o[:ets_dpst_arr].first,o[:ets_dpst_arr].last)  # datapoint type as string
             @knx_groups.push(o)
           else
             puts "WARN: cannot parse datapoint : #{o[:ets_dpst_xstr]}, group is skipped"
@@ -60,9 +61,6 @@ class ConfigurationImporter
         end
       end
     end
-  end
-
-  def self.specific_processing_for_my_project(o)
   end
 
   def self.name_to_id(str)
@@ -79,6 +77,8 @@ class ConfigurationImporter
       # TODO: add types here
       address_attribute=case o[:ets_dpst_str]
       when '1.001'; 'address'
+      when '1.008'; 'move_long_address'
+      when '1.010'; 'stop_address'
       when '3.007'; 'brightness_address'
       when '5.001'; 'brightness_state_address'
       end
@@ -137,20 +137,12 @@ class ConfigurationImporter
     end.join("\n")
   end
 
-  def generate(data,ext)
-    File.write("#{@baseout}.#{ext}",data)
-  end
 end
 
-if ENV.has_key?('SPECIAL')
-  load(ENV['SPECIAL'])
-else
-  puts "no specific code, set env var SPECIAL to load specific code"
-end
-
-raise "Usage: #{$0} etsprojectfile.knxproj" unless ARGV.length.eql?(1)
-config=ConfigurationImporter.new(ARGV.first)
-#puts config.knx_groups
-config.generate(config.xknx,'xknx.yaml')
-config.generate(config.homeass,'ha.yaml')
-config.generate(config.linknx,'linknx.xml')
+raise "Usage: #{$0} etsprojectfile.knxproj format extension [special]" unless ARGV.length >= 3 and ARGV.length  <= 4
+infile=ARGV.shift
+format=ARGV.shift.to_sym
+raise "no such format" unless [:xknx,:homeass,:linknx].include?(format)
+outfile=ARGV.shift
+special=ARGV.shift
+File.write(outfile,ConfigurationImporter.new(infile,special).send(format))

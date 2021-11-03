@@ -6,17 +6,15 @@ A simple ruby script to convert an ETS5 project file (*.knxproj) into:
 * an XML file for linknx (the object list only)
 * YAML for xknx
 
-Usage 1:
+Usage:
 
-ets_to_hass.rb myproject.knxproj
+```
+./ets_to_hass.rb <input file> <xknx|homeass|linknx> <output file> [<special processing lambda>]
+```
 
-This will generate files in a generic way, but it does not find if objects are light, etc..
+Special processing:
 
-Usage 2:
-
-write a little ruby code (specific.rb) to add special logic, for instance if you use naming conventions.
-
-SPECIAL=specific.rb ./ets_to_hass.rb myproject.knxproj
+Write a ruby lambda (specific.rb) to add special logic, for instance if you use naming conventions.
 
 This way a special code is called for each group address and give the opportunity to guess some values.
 
@@ -36,7 +34,7 @@ For instance in my project I use the following format for names:
 * `variation` : type 3.007
 * `valeur` : type 5.001
 
-https://www.home-assistant.io/integrations/knx/
+[https://www.home-assistant.io/integrations/knx/](https://www.home-assistant.io/integrations/knx/)
 
 # TODO
 
