@@ -26,73 +26,93 @@ class ConfigurationImporter
       navigate=navigate.first
       raise "ERROR: expect array with one element in #{n}" if navigate.nil?
     end
+    lambdafile=eval(File.read(lambdafile)) unless lambdafile.nil?
     # loop on each group range
-    navigate['GroupRange'].each do |group|
-      addresses=group['GroupAddress']
-      # ignore if group is empty
-      next if addresses.nil?
+    navigate['GroupRange'].each.map{|range|range['GroupAddress']}.select{|a|!a.nil?}.each do |addresses|
       # process each group address
-      addresses.each do |e|
+      addresses.each do |ga|
+        # build object for each group address
         o={
-          ets_name:       e['Name'],
-          ets_dpst_xstr:  e['DatapointType'], # datapoint type as string, from xml
-          ets_addr_int:   e['Address'].to_i,
-          ets_descr:      e['Description'],
-          p_group_name:   e['Name'], # linknx: group name (can be modified by special code)
-          p_object_id:    self.class.name_to_id(e['Name']), # ha and xknx: unique identifier of object which this group is about. e.g. kitchen.ceiling_light
-          p_ha_type:      'light',   # ha: object type, by default assume light
+          ets_name:       ga['Name'],
+          ets_descr:      ga['Description'],
+          p_group_name:   ga['Name'], # (modifiable by special) linknx: group name
+          p_object_id:    self.class.name_to_id(ga['Name']), # (modifiable by special) ha and xknx: unique identifier of object which this group is about. e.g. kitchen.ceiling_light
         }
-        a=o[:ets_addr_int]
-        o[:ets_addr_arr]=[(a>>12)&15,(a>>8)&15,a&255] # group address as array
-        o[:ets_addr_str]=o[:ets_addr_arr].join("/")   # group address as string
+        a=ga['Address'].to_i
+        o[:ets_addr_str]=[(a>>12)&15,(a>>8)&15,a&255].join("/")   # group address as string "x/y/z"
 
-        eval(File.read(lambdafile)).call(o) unless lambdafile.nil?
-
-        if o[:ets_dpst_xstr].nil?
+        if ga['DatapointType'].nil?
           puts "WARN: no datapoint type for #{o[:ets_addr_str]} : #{o[:ets_name]}, group address is skipped"
-        else
-          if m = o[:ets_dpst_xstr].match(/^DPST-([0-9]+)-([0-9]+)$/)
-            o[:ets_dpst_arr]=[m[1].to_i,m[2].to_i] # datapoint type as int array
-            o[:ets_dpst_str]=sprintf("%d.%03d",o[:ets_dpst_arr].first,o[:ets_dpst_arr].last)  # datapoint type as string
-            @knx_groups.push(o)
-          else
-            puts "WARN: cannot parse datapoint : #{o[:ets_dpst_xstr]}, group is skipped"
-          end
+          next
         end
+        # parse datapoint for easier use
+        if m = ga['DatapointType'].match(/^DPST-([0-9]+)-([0-9]+)$/)
+          # datapoint type as string x.00y
+          o[:ets_dpst_str]=sprintf("%d.%03d",m[1].to_i,m[2].to_i)
+        else
+          puts "WARN: cannot parse datapoint : #{ga['DatapointType']}, group is skipped"
+          next
+        end
+        # give a chance to do personal processing
+        lambdafile.call(o) unless lambdafile.nil?
+
+        @knx_groups.push(o)
       end
     end
   end
 
-  def self.name_to_id(str)
-    return str.gsub(/[^A-Za-z]+/,'_')
+  # generate identifier without special characters
+  def self.name_to_id(str,repl='_')
+    return str.gsub(/[^A-Za-z]+/,repl)
   end
 
   def homeass
-    # set empty hash for key knx
-    conf=init_hash(['knx'])
-    # initialize hass types
-    knx=conf['knx']=init_hash(['binary_sensor','climate','cover','light','notify','scene','sensor','switch','weather'])
-    @knx_groups.each do |o|
-      k=knx[o[:p_ha_type]][o[:p_object_id]]||={}
+    # index: id, value: home assistant object with type
+    objects={}
+    @knx_groups.each do |ga|
+      o=objects[ga[:p_object_id]]
+      o={'name'=>ga[:p_object_id]} if o.nil?
       # TODO: add types here
-      address_attribute=case o[:ets_dpst_str]
-      when '1.001'; 'address'
-      when '1.008'; 'move_long_address'
-      when '1.010'; 'stop_address'
-      when '3.007'; 'brightness_address'
-      when '5.001'; 'brightness_state_address'
-      end
-      if address_attribute.nil?
-        puts "WARN: no mapping for group address: #{o[:ets_addr_str]} : #{o[:ets_name]}: #{o[:ets_dpst_str]}"
+      case ga[:ets_dpst_str]
+      when '1.001' # switch
+        p='address'
+        t='light'
+      when '1.008' # up/down
+        p='move_long_address'
+        t='cover'
+      when '1.010' # stop
+        p='stop_address'
+        t='cover'
+      when '3.007' # dimming control
+        p='brightness_address'
+        t='light'
+      when '5.001' # percentage 0-100
+        p='brightness_state_address' if o[:type].eql?('light')
+        p='position_address' if o[:type].eql?('cover')
+        t=nil
       else
-        k[address_attribute]=o[:ets_addr_str]
+        puts "WARN: no mapping for group address: #{ga[:ets_addr_str]} : #{ga[:ets_name]}: #{ga[:ets_dpst_str]}"
+        next
       end
+      next "unexpected nil property name for #{ga} : #{o}" if p.nil?
+      o[p]=ga[:ets_addr_str]
+      if ! ga[:ha_type_force].nil?
+        #puts "WARN: Overriding type #{ga[:p_object_id]}: #{o[:type]}" if !o[:type].eql?(ga[:ha_type_force])
+        o[:type]=ga[:ha_type_force]
+      elsif !t.nil?
+        puts "WARN: Changing type #{ga[:p_object_id]}: #{o[:type]} -> #{t}" if !o[:type].nil? and !o[:type].eql?(t)
+        o[:type]=t
+      end
+      objects[ga[:p_object_id]]=o
+      puts "#{ga} #{o}"
     end
-    cleanup_hash(knx)
-    knx.keys.each do |g|
-      knx[g]=knx[g].keys.inject([]){|m,n|knx[g][n]['name']=n;m.push(knx[g][n]);m}
+    knx={}
+    objects.each do |k,v|
+      knx[v[:type]]=[] unless knx.has_key?(v[:type])
+      knx[v[:type]].push(v)
+      v.delete(:type)
     end
-    return conf.to_yaml
+    return {'knx'=>knx}.to_yaml
   end
 
   def init_hash(keys)
@@ -109,18 +129,18 @@ class ConfigurationImporter
     conf['groups']=init_hash(['binary_sensor','climate','cover','light','sensor','switch','time','weather'])
     conf['groups']['time']['General.Time']='9/0/1'
     lights=conf['groups']['light']
-    @knx_groups.each do |o|
-      x=lights[o[:p_object_id]]||={}
+    @knx_groups.each do |ga|
+      x=lights[ga[:p_object_id]]||={}
       # TODO: add types here
-      address_attribute=case o[:ets_dpst_str]
+      address_attribute=case ga[:ets_dpst_str]
       when '1.001'; 'group_address_switch'
       when '3.007'; 'group_address_brightness'
       when '5.001'; 'group_address_brightness_state'
       end
       if address_attribute.nil?
-        puts "WARN: no mapping for group address for type #{o[:ets_dpst_str]} : #{o[:ets_addr_str]} : #{o[:ets_name]}"
+        puts "WARN: no mapping for group address for type #{ga[:ets_dpst_str]} : #{ga[:ets_addr_str]} : #{ga[:ets_name]}"
       else
-        x[address_attribute]=o[:ets_addr_str]
+        x[address_attribute]=ga[:ets_addr_str]
       end
     end
     cleanup_hash(conf['groups'])
@@ -129,11 +149,11 @@ class ConfigurationImporter
 
   # https://sourceforge.net/p/linknx/wiki/Object_Definition_section/
   def linknx
-    return @knx_groups.map do |o|
-      linknx_id="id_#{o[:ets_addr_arr].join('_')}"
-      linknx_type=o[:ets_dpst_str]
+    return @knx_groups.map do |ga|
+      linknx_id="id_#{ga[:ets_addr_str].gsub('/','_')}"
+      linknx_type=ga[:ets_dpst_str]
       linknx_type='5.xxx' if linknx_type.start_with?('5.')
-      %Q(        <object type="#{linknx_type}" id="#{linknx_id}" gad="#{o[:ets_addr_str]}" init="request">#{o[:p_group_name]}</object>)
+      %Q(        <object type="#{linknx_type}" id="#{linknx_id}" gad="#{ga[:ets_addr_str]}" init="request">#{ga[:p_group_name]}</object>)
     end.join("\n")
   end
 
