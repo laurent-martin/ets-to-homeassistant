@@ -1,4 +1,4 @@
-ETS_FILE=Beverly Mai - Maison_20211107.knxproj
+ETS_FILE=Beverly Mai - Maison_20211205.knxproj
 SPECIAL=laurent_specific.rb
 ETS_EXT=.knxproj
 HA_EXT=.ha.yaml

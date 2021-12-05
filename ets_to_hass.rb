@@ -4,6 +4,7 @@
 require 'zip'
 require 'xmlsimple'
 require 'yaml'
+require 'json'
 
 class ConfigurationImporter
   ETS_EXT='.knxproj'
@@ -11,52 +12,58 @@ class ConfigurationImporter
   def initialize(file,lambdafile=nil)
     raise "ETS file must end with #{ETS_EXT}" unless file.end_with?(ETS_EXT)
     @knx_groups=[]
-    navigate=nil
+    entry_point=nil
     # read ETS5 file and get project file
     Zip::File.open(file) do |zip_file|
       zip_file.glob('*/0.xml').each do |entry|
-        navigate=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
+        entry_point=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
       end
     end
     # dig to get only group addresses
-    ['Project','Installations','Installation','GroupAddresses','GroupRanges','GroupRange'].each do |n|
-      navigate=navigate[n]
-      raise "ERROR: cannot find level #{n} in xml" if navigate.nil?
+    ['Project','Installations','Installation','GroupAddresses','GroupRanges'].each do |n|
+      entry_point=entry_point[n]
+      raise "ERROR: cannot find level #{n} in xml" if entry_point.nil?
       # because we use ForceArray
-      navigate=navigate.first
-      raise "ERROR: expect array with one element in #{n}" if navigate.nil?
+      entry_point=entry_point.first
+      raise "ERROR: expect array with one element in #{n}" if entry_point.nil?
     end
     lambdafile=eval(File.read(lambdafile)) unless lambdafile.nil?
     # loop on each group range
-    navigate['GroupRange'].each.map{|range|range['GroupAddress']}.select{|a|!a.nil?}.each do |addresses|
-      # process each group address
-      addresses.each do |ga|
-        # build object for each group address
-        o={
-          ets_name:       ga['Name'],
-          ets_descr:      ga['Description'],
-          p_group_name:   ga['Name'], # (modifiable by special) linknx: group name
-          p_object_id:    self.class.name_to_id(ga['Name']), # (modifiable by special) ha and xknx: unique identifier of object which this group is about. e.g. kitchen.ceiling_light
-        }
-        a=ga['Address'].to_i
-        o[:ets_addr_str]=[(a>>12)&15,(a>>8)&15,a&255].join("/")   # group address as string "x/y/z"
+    entry_point['GroupRange'].each do |group_range_1|
+      ranges=group_range_1['GroupRange']
+      next if ranges.nil?
+      ranges.each do |range|
+        addresses=range['GroupAddress']
+        next if addresses.nil?
+        # process each group address
+        addresses.each do |ga|
+          # build object for each group address
+          o={
+            ets_name:       ga['Name'],
+            ets_descr:      ga['Description'],
+            p_group_name:   ga['Name'], # (modifiable by special) linknx: group name
+            p_object_id:    self.class.name_to_id(ga['Name']), # (modifiable by special) ha and xknx: unique identifier of object which this group is about. e.g. kitchen.ceiling_light
+          }
+          a=ga['Address'].to_i
+          o[:ets_addr_str]=[(a>>12)&15,(a>>8)&15,a&255].join("/")   # group address as string "x/y/z"
 
-        if ga['DatapointType'].nil?
-          puts "WARN: no datapoint type for #{o[:ets_addr_str]} : #{o[:ets_name]}, group address is skipped"
-          next
-        end
-        # parse datapoint for easier use
-        if m = ga['DatapointType'].match(/^DPST-([0-9]+)-([0-9]+)$/)
-          # datapoint type as string x.00y
-          o[:ets_dpst_str]=sprintf("%d.%03d",m[1].to_i,m[2].to_i)
-        else
-          puts "WARN: cannot parse datapoint : #{ga['DatapointType']}, group is skipped"
-          next
-        end
-        # give a chance to do personal processing
-        lambdafile.call(o) unless lambdafile.nil?
+          if ga['DatapointType'].nil?
+            puts "WARN: no datapoint type for #{o[:ets_addr_str]} : #{o[:ets_name]}, group address is skipped"
+            next
+          end
+          # parse datapoint for easier use
+          if m = ga['DatapointType'].match(/^DPST-([0-9]+)-([0-9]+)$/)
+            # datapoint type as string x.00y
+            o[:ets_dpst_str]=sprintf("%d.%03d",m[1].to_i,m[2].to_i)
+          else
+            puts "WARN: cannot parse datapoint : #{ga['DatapointType']}, group is skipped"
+            next
+          end
+          # give a chance to do personal processing
+          lambdafile.call(o) unless lambdafile.nil?
 
-        @knx_groups.push(o)
+          @knx_groups.push(o)
+        end
       end
     end
   end
