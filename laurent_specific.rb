@@ -1,34 +1,39 @@
-def process_object(ga)
-  # by convetion name is: <room>:<object>:<type>
-  parts=ga[:ets_name].split(':')
-  raise "[#{ga[:ets_name]}] does not follow convention: <location>:<object>:<type>" unless parts.length.eql?(3)
-  object_location=parts[0]
-  object_simple_name=parts[1]
-  group_type=parts[2]
-  ga[:p_object_id]=[object_location,object_simple_name].map{|i| ConfigurationImporter.name_to_id(i)}.join('.')
-  # used by linknx: change into spaces for easier read
-  ga[:p_group_name]=ga[:p_group_name].gsub(':',' ').strip
-
-  case ga[:ets_dpst_str]
-  when '1.001'
-    raise "#{ga} expecting ON/OFF" unless group_type.eql?('ON/OFF')
-    #puts object_simple_name
-    ga[:ha_type_force]='switch' if object_simple_name.start_with?('VMC')
-    ga[:ha_type_force]='switch' if object_simple_name.start_with?('Sonnette')
-  when '3.007'
-    raise "inconsistent type" unless group_type.eql?('variation')
-  when '5.001'
-    raise "#{ga} expecting valeur" unless ['valeur','Position'].include?(group_type)
-  when '1.008'
-    # 1.008: up/down , but Pulse: special case
-    if group_type.eql?('Pulse')
-      # Pulse means push button, remove from name
-      ga[:p_group_name]=ga[:p_group_name].gsub(/Pulse$/,'').strip
-      raise %Q{name error "#{ga[:ets_name]}": VR} unless object_simple_name.start_with?('VR ')
-      # specific to me
-      ga[:ets_dpst_str]='1.001'
-      ga[:ha_type_force]='switch'
-      puts "Fixing Pulse: #{ga}"
+def process_object(knx)
+  # 1: fix special blinds...
+  o_delete=[]
+  o_new={}
+  @knx[:ob].each do |k,o|
+    if o[:type].eql?('FT-7') and @knx[:ga][o[:ga].first][:name].end_with?(':Pulse')
+      o_delete.push(k)
+      o[:ga].each do |gid|
+        direction=case @knx[:ga][gid][:name]
+        when /Montee/;'Montee'
+        when /Descente/;'Descente'
+        else raise "error: #{@knx[:ga][gid][:name]}"
+        end
+        @knx[:ga][gid][:datapoint].replace('1.001')
+        o_new["#{k}_#{direction}"]={
+          name:   "#{o[:name]} #{direction}",
+          type:   'FT-0', # simple switch
+          ga:     [gid],
+          floor:  o[:floor],
+          room:   o[:room],
+          custom: {} # custom values
+        }
+      end
+    end
+  end
+  o_delete.each{|i|@knx[:ob].delete(i)}
+  @knx[:ob].merge!(o_new)
+  # 2: set unique name when needed
+  @knx[:ob].each do |k,o|
+    # set name as room + function
+    o[:custom][:ha_init]={'name'=>"#{o[:name]} #{o[:room]}"}
+    if o[:type].eql?('FT-7')
+      o[:custom][:ha_init].merge!({
+        'travelling_time_down'=> 59,
+        'travelling_time_up'=> 59
+      })
     end
   end
 end
