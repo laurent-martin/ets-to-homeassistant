@@ -14,12 +14,16 @@ A Ruby script to convert an ETS5 project file (*.knxproj) into:
 ./ets_to_hass.rb <input file> <xknx|homeass|linknx> [<special processing lambda>]
 ```
 
-## How it works
+## Structure in ETS
 
 The script takes the exported file with extension: `knxproj`.
 This file is a zip with several XML files in it.
 The script parses the first project file found.
 It extracts group address information, as well as Building information.
+
+The script assumes 3-level address.
+
+<img href="./images/ets.png"/>
 
 ## Home Assistant
 

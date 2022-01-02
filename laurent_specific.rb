@@ -38,8 +38,8 @@ lambda do |knx|
     # set my specific parameters
     if o[:type].eql?('FT-7')
       o[:custom][:ha_init].merge!({
-        'travelling_time_down'=> 59,
-        'travelling_time_up'=> 59
+        'travelling_time_down'=>59,
+        'travelling_time_up'=>59
       })
     end
   end

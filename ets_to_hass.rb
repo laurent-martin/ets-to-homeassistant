@@ -78,6 +78,7 @@ class ConfigurationImporter
         }.merge(info)
         # store reference to this object in the GAs
         o[:ga].each do |g|
+          next unless @knx[:ga].has_key?(g)
           @knx[:ga][g][:objs].push(f['Id'])
         end
         @logger.debug("func #{o}")
@@ -130,10 +131,11 @@ class ConfigurationImporter
       when 'FT-1';'light'
       when 'FT-6';'light' # dimmable
       when 'FT-7';'cover'
-      else @logger.error("function type not supported, please report: #{f['Type']}");next
+      else @logger.error("function type not supported, please report: #{o[:type]}");next
       end
       o[:ga].each do |garef|
         ga=@knx[:ga][garef]
+        next if ga.nil?
         case ga[:datapoint]
         when '1.001' # switch on/off
           p='address'
