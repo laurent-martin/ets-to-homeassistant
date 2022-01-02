@@ -1,20 +1,20 @@
-def process_object(knx)
+lambda do |knx|
   # 1: fix special blinds...
   o_delete=[]
   o_new={}
-  @knx[:ob].each do |k,o|
-    if o[:type].eql?('FT-7') and @knx[:ga][o[:ga].first][:name].end_with?(':Pulse')
+  knx[:ob].each do |k,o|
+    if o[:type].eql?('FT-7') and knx[:ga][o[:ga].first][:name].end_with?(':Pulse')
       # split this object into 2: delete old object
       o_delete.push(k)
       # create one obj per GA
       o[:ga].each do |gid|
-        direction=case @knx[:ga][gid][:name]
+        direction=case knx[:ga][gid][:name]
         when /Montee/;'Montee'
         when /Descente/;'Descente'
-        else raise "error: #{@knx[:ga][gid][:name]}"
+        else raise "error: #{knx[:ga][gid][:name]}"
         end
         # fix datapoint for ga
-        @knx[:ga][gid][:datapoint].replace('1.001')
+        knx[:ga][gid][:datapoint].replace('1.001')
         # create new object
         o_new["#{k}_#{direction}"]={
           name:   "#{o[:name]} #{direction}",
@@ -28,11 +28,11 @@ def process_object(knx)
     end
   end
   # delete redundant objects
-  o_delete.each{|i|@knx[:ob].delete(i)}
+  o_delete.each{|i|knx[:ob].delete(i)}
   # add split objects
-  @knx[:ob].merge!(o_new)
+  knx[:ob].merge!(o_new)
   # 2: set unique name when needed
-  @knx[:ob].each do |k,o|
+  knx[:ob].each do |k,o|
     # set name as room + function
     o[:custom][:ha_init]={'name'=>"#{o[:name]} #{o[:room]}"}
     # set my specific parameters
@@ -45,11 +45,9 @@ def process_object(knx)
   end
   # 3- manage group addresses without object
   error=false
-  @knx[:ga].values.select{|ga|ga[:objs].empty?}.each do |ga|
+  knx[:ga].values.select{|ga|ga[:objs].empty?}.each do |ga|
     error=true
     STDERR.puts("group not in object: #{ga[:address]}")
   end
   raise "Error found" if error
 end
-
-lambda { |ga| process_object(ga)}
