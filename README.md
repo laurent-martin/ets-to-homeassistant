@@ -11,7 +11,7 @@ A Ruby script to convert an ETS5 project file (*.knxproj) into:
 ## Usage
 
 ```
-./ets_to_hass.rb <input file> <xknx|homeass|linknx> [<special processing lambda>]
+./ets_to_hass.rb <xknx|homeass|linknx> <input file> [<special processing lambda>]
 ```
 
 ## Structure in ETS
@@ -23,7 +23,7 @@ It extracts group address information, as well as Building information.
 
 The script assumes 3-level address.
 
-<img href="./images/ets.png"/>
+<p align="center"><img src="images/ets5.png" width="100%"/><br/>Fig. 1 ETS 5 with building</p>
 
 ## Home Assistant
 
@@ -41,7 +41,7 @@ Support is dropped for the moment, until needed.
 
 ## Special processing
 
-If there are some special things to do, just before processing, the whole built structure is passed to a user-specific function (Ruby).
+It is possible to provide a post-processing function that can modify the analyzed structure, either to add information or change objects.
 
 For instance if you use naming conventions or information in the description field of group address.
 

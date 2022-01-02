@@ -28,16 +28,15 @@ class ConfigurationImporter
   end
 
   def process_ga(ga)
-    a=ga['Address'].to_i
     # build object for each group address
     group={
       id:               ga['Id'].freeze,                              # ETS: internal id
       name:             ga['Name'].freeze,                            # ETS: name field
       description:      ga['Description'].freeze,                     # ETS: description field
-      address:          [(a>>12)&15,(a>>8)&15,a&255].join('/').freeze,# group address as string "x/y/z" : we assume 3 levels
+      address:          @addrparser.call(ga['Address'].to_i).freeze,  # group address as string "x/y/z" : we assume 3 levels
       datapoint:        nil,                                          # datapoint type as string "x.00y"
       linknx_disp_name: ga['Name'],                                   # (modifiable by special) linknx: display name of group address (no < or >)
-      objs:             [],                                           # it may be in multiple objects
+      objs:             [],                                           # objects ids, it may be in multiple objects
       custom:           {}                                            # modified by lambda
     }
     if ga['DatapointType'].nil?
@@ -54,7 +53,16 @@ class ConfigurationImporter
     end
     # Index is the internal Id in xml file
     @knx[:ga][group[:id]]=group.freeze
+    @logger.debug("group: #{group}")
   end
+
+  def process_group_ranges(gr)
+    gr['GroupRange'].each{|sgr|process_group_ranges(sgr)} if gr.has_key?('GroupRange')
+    gr['GroupAddress'].each{|ga|process_ga(ga)} if gr.has_key?('GroupAddress')
+  end
+
+  # from knx_master.xml in project file
+  KNOWN_FUNCTIONS=[:custom,:switchable_light,:dimmable_light,:sun_protection,:heating_radiator,:heating_floor,:dimmable_light,:sun_protection,:heating_switching_variable,:heating_continuous_variable]
 
   def process_space(space,info=nil)
     @logger.debug("#{space['Type']}: #{space['Name']}")
@@ -70,9 +78,14 @@ class ConfigurationImporter
       info[:room]=space['Name']
       # loop on group addresses
       space['Function'].each do |f|
+        if m=f['Type'].match(/^FT-([0-9])$/)
+          type=KNOWN_FUNCTIONS[m[1].to_i]
+        else
+          raise "unknown function type: #{f['Type']}"
+        end
         o={
           name:   f['Name'].freeze,
-          type:   f['Type'].freeze, # type of function : FT-x
+          type:   type,
           ga:     f['GroupAddressRef'].map{|g|g['RefId'].freeze},
           custom: {} # custom values
         }.merge(info)
@@ -81,7 +94,7 @@ class ConfigurationImporter
           next unless @knx[:ga].has_key?(g)
           @knx[:ga][g][:objs].push(f['Id'])
         end
-        @logger.debug("func #{o}")
+        @logger.debug("function: #{o}")
         @knx[:ob][f['Id']]=o.freeze
       end
     end
@@ -92,32 +105,31 @@ class ConfigurationImporter
     lambdafile=eval(File.read(lambdafile)) unless lambdafile.nil?
     @knx={ga: {}, ob: {}}
     @logger = Logger.new(STDERR)
-    xml_root=nil
+    xml_project=xml_data=nil
     # read ETS5 file and get project file
     Zip::File.open(file) do |zip_file|
-      zip_file.glob('*/0.xml').each do |entry|
-        xml_root=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
+      zip_file.each do |entry|
+        case entry.name
+        when %r{P-[^/]+/project\.xml$};xml_project=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
+        when %r{P-[^/]+/0\.xml$};xml_data=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
+        end
       end
     end
-    installation=self.class.my_dig(xml_root,['Project','Installations','Installation'])
-    # loop on each group range (assume 3 levels)
-    self.class.my_dig(installation,['GroupAddresses','GroupRanges'])['GroupRange'].each do |group_range_1|
-      ranges=group_range_1['GroupRange']
-      next if ranges.nil?
-      ranges.each do |range|
-        addresses=range['GroupAddress']
-        next if addresses.nil?
-        # process each group address
-        addresses.each do |ga|
-          process_ga(ga)
-        end
-      end # loop GA
+    proj_info=xml_project['Project'].first['ProjectInformation'].first
+    @logger.info("Using project #{proj_info['Name']}, address style: #{proj_info['GroupAddressStyle']}")
+    # set group address formatter according to project settings
+    @addrparser=case proj_info['GroupAddressStyle']
+    when 'Free';lambda{|a|a.to_s}
+    when 'TwoLevel';lambda{|a|[(a>>11)&31,a&2047].join('/')}
+    when 'ThreeLevel';lambda{|a|[(a>>11)&31,(a>>8)&7,a&255].join('/')}
+    else raise "Error: #{proj_info['GroupAddressStyle']}"
     end
+    installation=self.class.my_dig(xml_data,['Project','Installations','Installation'])
+    # process group ranges
+    process_group_ranges(self.class.my_dig(installation,['GroupAddresses','GroupRanges']))
     process_space(self.class.my_dig(installation,['Locations']))
     # give a chance to fix project specific information
     lambdafile.call(@knx) unless lambdafile.nil?
-    #PP.pp(self.class.my_dig(installation,['Locations']))
-    #PP.pp(@knx)
   end
 
   def homeass
@@ -125,31 +137,28 @@ class ConfigurationImporter
     @knx[:ob].values.each do |o|
       new_obj=o[:custom].has_key?(:ha_init) ? o[:custom][:ha_init] : {}
       new_obj['name']=o[:name] unless new_obj.has_key?('name')
-      # add functions here
-      ha_obj_type=case o[:type]
-      when 'FT-0';'switch'
-      when 'FT-1';'light'
-      when 'FT-6';'light' # dimmable
-      when 'FT-7';'cover'
-      else @logger.error("function type not supported, please report: #{o[:type]}");next
+      # compute object type
+      ha_obj_type=o[:custom][:ha_type] || case o[:type]
+      when :switchable_light,:dimmable_light;'light'
+      when :sun_protection;'cover'
+      when :custom,:heating_continuous_variable,:heating_floor,:heating_radiator,:heating_switching_variable
+        @logger.warn("function type not implemented for #{o[:name]}/#{o[:room]}: #{o[:type]}");next
+      else @logger.error("function type not supported for #{o[:name]}/#{o[:room]}, please report: #{o[:type]}");next
       end
+      # process all group addresses in function
       o[:ga].each do |garef|
         ga=@knx[:ga][garef]
         next if ga.nil?
-        case ga[:datapoint]
-        when '1.001' # switch on/off
-          p='address'
-        when '1.008' # up/down
-          p='move_long_address'
-        when '1.010' # stop
-          p='stop_address'
-        when '1.011' # switch state
-          p='state_address'
-        when '3.007' # dimming control: used by buttons
-          next
+        # find property name based on datapoint
+        ha_property=case ga[:datapoint]
+        when '1.001';new_obj.has_key?('address') ? 'state_address' : 'address' # switch on/off or state
+        when '1.008';'move_long_address' # up/down
+        when '1.010';'stop_address' # stop
+        when '1.011';'state_address' # switch state
+        when '3.007';next # dimming control: used by buttons
         when '5.001' # percentage 0-100
           # custom code tells what is state
-          p=case ha_obj_type
+          case ha_obj_type
           when 'light'; new_obj.has_key?('brightness_address') ? 'brightness_state_address' : 'brightness_address'
           when 'cover'; 'position_address'
           else nil
@@ -158,12 +167,12 @@ class ConfigurationImporter
           @logger.warn("no mapping for group address: #{ga[:address]} : #{ga[:name]}: #{ga[:datapoint]}")
           next
         end
-        if p.nil?
+        if ha_property.nil?
           @logger.warn("unexpected nil property name for #{ga} : #{o}")
           next
         end
-        @logger.warn("overwriting value #{p} : #{new_obj[p]} with #{ga[:address]}") if new_obj.has_key?(p)
-        new_obj[p]=ga[:address]
+        @logger.warn("overwriting value #{ha_property} : #{new_obj[ha_property]} with #{ga[:address]}") if new_obj.has_key?(ha_property)
+        new_obj[ha_property]=ga[:address]
       end
       knx[ha_obj_type]=[] unless knx.has_key?(ha_obj_type)
       knx[ha_obj_type].push(new_obj)
@@ -185,8 +194,8 @@ class ConfigurationImporter
 end
 
 raise "Usage: #{$0} etsprojectfile.knxproj format [special]" unless ARGV.length >= 2 and ARGV.length  <= 3
-infile=ARGV.shift
 format=ARGV.shift.to_sym
+infile=ARGV.shift
 raise 'no such format' unless [:homeass,:linknx].include?(format)
 special=ARGV.shift
 $stdout.write(ConfigurationImporter.new(infile,special).send(format))

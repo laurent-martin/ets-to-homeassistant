@@ -3,7 +3,7 @@ lambda do |knx|
   o_delete=[]
   o_new={}
   knx[:ob].each do |k,o|
-    if o[:type].eql?('FT-7') and knx[:ga][o[:ga].first][:name].end_with?(':Pulse')
+    if o[:type].eql?(:sun_protection) and knx[:ga][o[:ga].first][:name].end_with?(':Pulse')
       # split this object into 2: delete old object
       o_delete.push(k)
       # create one obj per GA
@@ -18,11 +18,11 @@ lambda do |knx|
         # create new object
         o_new["#{k}_#{direction}"]={
           name:   "#{o[:name]} #{direction}",
-          type:   'FT-0', # simple switch
+          type:   :custom, # simple switch
           ga:     [gid],
           floor:  o[:floor],
           room:   o[:room],
-          custom: {} # custom values
+          custom: {ha_type: 'switch'} # custom values
         }
       end
     end
@@ -36,7 +36,7 @@ lambda do |knx|
     # set name as room + function
     o[:custom][:ha_init]={'name'=>"#{o[:name]} #{o[:room]}"}
     # set my specific parameters
-    if o[:type].eql?('FT-7')
+    if o[:type].eql?(:sun_protection)
       o[:custom][:ha_init].merge!({
         'travelling_time_down'=>59,
         'travelling_time_up'=>59
