@@ -21,8 +21,6 @@ This file is a zip with several XML files in it.
 The script parses the first project file found.
 It extracts group address information, as well as Building information.
 
-The script assumes 3-level address.
-
 <p align="center"><img src="images/ets5.png" width="100%"/><br/>Fig. 1 ETS 5 with building</p>
 
 ## Home Assistant
