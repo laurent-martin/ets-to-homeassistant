@@ -36,6 +36,13 @@ def process_object(knx)
       })
     end
   end
+  # 3- manage group addresses without object
+  error=false
+  @knx[:ga].values.select{|ga|ga[:objs].empty?}.each do |ga|
+    error=true
+    STDERR.puts("group not in object: #{ga[:address]}")
+  end
+  raise "Error found" if error
 end
 
 lambda { |ga| process_object(ga)}
