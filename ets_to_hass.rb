@@ -132,7 +132,7 @@ class ConfigurationImporter
     process_space(self.class.my_dig(installation,['Locations']))
   end
 
-  def homeass
+  def generate_homeass
     haknx={}
     # warn of group addresses that will not be used (you can fix in custom lambda)
     @data[:ga].values.select{|ga|ga[:objs].empty?}.each do |ga|
@@ -185,7 +185,7 @@ class ConfigurationImporter
   end
 
   # https://sourceforge.net/p/linknx/wiki/Object_Definition_section/
-  def linknx
+  def generate_linknx
     return @data[:ga].values.sort{|a,b|a[:address]<=>b[:address]}.map do |ga|
       %Q(        <object type="#{ga[:datapoint]}" id="id_#{ga[:address].gsub('/','_')}" gad="#{ga[:address]}" init="request">#{ga[:linknx_disp_name]}</object>)
     end.join("\n")
@@ -193,12 +193,18 @@ class ConfigurationImporter
 
 end
 
-raise "Usage: #{$0} format <etsprojectfile>.knxproj [custom lambda]" unless ARGV.length >= 2 and ARGV.length  <= 3
-format=ARGV.shift.to_sym
+GENPREFIX='generate_'
+genformats=(ConfigurationImporter.instance_methods-ConfigurationImporter.superclass.instance_methods).
+select{|m|m.start_with?(GENPREFIX)}.
+map{|m|m[GENPREFIX.length..-1]}
+
+raise "Usage: #{$0} [#{genformats.join('|')}] <etsprojectfile>.knxproj [custom lambda]" unless ARGV.length >= 2 and ARGV.length  <= 3
+format=ARGV.shift
 infile=ARGV.shift
+custom_lambda=ARGV.shift
+raise "Error: no such output format: #{format}" unless genformats.include?(format)
+# read and parse file
 knxconf=ConfigurationImporter.new(infile)
-raise 'no such format' unless [:homeass,:linknx].include?(format)
 # apply special code if provided
-special=ARGV.shift
-eval(File.read(special)).call(knxconf.data) unless special.nil?
-$stdout.write(knxconf.send(format))
+eval(File.read(custom_lambda)).call(knxconf) unless custom_lambda.nil?
+$stdout.write(knxconf.send("#{GENPREFIX}#{format}".to_sym))

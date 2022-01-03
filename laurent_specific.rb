@@ -1,4 +1,5 @@
-lambda do |knx|
+lambda do |knxconf|
+  knx=knxconf.data
   # 1: fix special blinds...
   o_delete=[]
   o_new={}
