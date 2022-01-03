@@ -5,7 +5,6 @@ require 'zip'
 require 'xmlsimple'
 require 'yaml'
 require 'json'
-require 'pp'
 require 'logger'
 
 class ConfigurationImporter
@@ -22,20 +21,15 @@ class ConfigurationImporter
     return entry_point
   end
 
-  # generate identifier without special characters
-  def self.name_to_id(str,repl='_')
-    return str.gsub(/[^A-Za-z]+/,repl)
-  end
-
   def process_ga(ga)
     # build object for each group address
     group={
       id:               ga['Id'].freeze,                              # ETS: internal id
       name:             ga['Name'].freeze,                            # ETS: name field
       description:      ga['Description'].freeze,                     # ETS: description field
-      address:          @addrparser.call(ga['Address'].to_i).freeze,  # group address as string "x/y/z" : we assume 3 levels
+      address:          @addrparser.call(ga['Address'].to_i).freeze,  # group address as string. e.g. "x/y/z" depending on project style
       datapoint:        nil,                                          # datapoint type as string "x.00y"
-      linknx_disp_name: ga['Name'],                                   # (modifiable by special) linknx: display name of group address (no < or >)
+      linknx_disp_name: ga['Name'],                                   # (modifiable by custom lambda) linknx: display name of group address (no < or >)
       objs:             [],                                           # objects ids, it may be in multiple objects
       custom:           {}                                            # modified by lambda
     }
@@ -52,7 +46,7 @@ class ConfigurationImporter
       return
     end
     # Index is the internal Id in xml file
-    @knx[:ga][group[:id]]=group.freeze
+    @data[:ga][group[:id]]=group.freeze
     @logger.debug("group: #{group}")
   end
 
@@ -91,50 +85,60 @@ class ConfigurationImporter
         }.merge(info)
         # store reference to this object in the GAs
         o[:ga].each do |g|
-          next unless @knx[:ga].has_key?(g)
-          @knx[:ga][g][:objs].push(f['Id'])
+          next unless @data[:ga].has_key?(g)
+          @data[:ga][g][:objs].push(f['Id'])
         end
         @logger.debug("function: #{o}")
-        @knx[:ob][f['Id']]=o.freeze
+        @data[:ob][f['Id']]=o.freeze
       end
     end
   end
 
-  def initialize(file,lambdafile=nil)
+  def read_file(file)
     raise "ETS file must end with #{ETS_EXT}" unless file.end_with?(ETS_EXT)
-    lambdafile=eval(File.read(lambdafile)) unless lambdafile.nil?
-    @knx={ga: {}, ob: {}}
-    @logger = Logger.new(STDERR)
-    xml_project=xml_data=nil
+    project={}
     # read ETS5 file and get project file
     Zip::File.open(file) do |zip_file|
       zip_file.each do |entry|
         case entry.name
-        when %r{P-[^/]+/project\.xml$};xml_project=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
-        when %r{P-[^/]+/0\.xml$};xml_data=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
+        when %r{P-[^/]+/project\.xml$};project[:info]=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
+        when %r{P-[^/]+/0\.xml$};project[:data]=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
         end
       end
     end
-    proj_info=xml_project['Project'].first['ProjectInformation'].first
-    @logger.info("Using project #{proj_info['Name']}, address style: #{proj_info['GroupAddressStyle']}")
+    return project
+  end
+
+  attr_reader :data
+
+  def initialize(file)
+    @data={ga: {}, ob: {}}
+    @logger = Logger.new(STDERR)
+    @logger.level=ENV.has_key?('DEBUG') ? ENV['DEBUG'] : Logger::INFO
+    project=read_file(file)
+    proj_info=self.class.my_dig(project[:info],['Project','ProjectInformation'])
+    group_addr_style=ENV.has_key?('GADDRSTYLE') ? ENV['GADDRSTYLE'] : proj_info['GroupAddressStyle']
+    @logger.info("Using project #{proj_info['Name']}, address style: #{group_addr_style}")
     # set group address formatter according to project settings
-    @addrparser=case proj_info['GroupAddressStyle']
-    when 'Free';lambda{|a|a.to_s}
-    when 'TwoLevel';lambda{|a|[(a>>11)&31,a&2047].join('/')}
+    @addrparser=case group_addr_style # take int , returns str
+    when 'Free';      lambda{|a|a.to_s}
+    when 'TwoLevel';  lambda{|a|[(a>>11)&31,a&2047].join('/')}
     when 'ThreeLevel';lambda{|a|[(a>>11)&31,(a>>8)&7,a&255].join('/')}
-    else raise "Error: #{proj_info['GroupAddressStyle']}"
+    else raise "Error: #{group_addr_style}"
     end
-    installation=self.class.my_dig(xml_data,['Project','Installations','Installation'])
+    installation=self.class.my_dig(project[:data],['Project','Installations','Installation'])
     # process group ranges
     process_group_ranges(self.class.my_dig(installation,['GroupAddresses','GroupRanges']))
     process_space(self.class.my_dig(installation,['Locations']))
-    # give a chance to fix project specific information
-    lambdafile.call(@knx) unless lambdafile.nil?
   end
 
   def homeass
-    knx={}
-    @knx[:ob].values.each do |o|
+    haknx={}
+    # warn of group addresses that will not be used (you can fix in custom lambda)
+    @data[:ga].values.select{|ga|ga[:objs].empty?}.each do |ga|
+      @logger.warn("group not in object: #{ga[:address]}: Create custom object in lambda if needed , or use ETS to create functions")
+    end
+    @data[:ob].values.each do |o|
       new_obj=o[:custom].has_key?(:ha_init) ? o[:custom][:ha_init] : {}
       new_obj['name']=o[:name] unless new_obj.has_key?('name')
       # compute object type
@@ -147,11 +151,11 @@ class ConfigurationImporter
       end
       # process all group addresses in function
       o[:ga].each do |garef|
-        ga=@knx[:ga][garef]
+        ga=@data[:ga][garef]
         next if ga.nil?
         # find property name based on datapoint
         ha_property=case ga[:datapoint]
-        when '1.001';new_obj.has_key?('address') ? 'state_address' : 'address' # switch on/off or state
+        when '1.001';ga[:custom][:is_state] ? 'state_address' : 'address' # switch on/off or state
         when '1.008';'move_long_address' # up/down
         when '1.010';'stop_address' # stop
         when '1.011';'state_address' # switch state
@@ -159,7 +163,7 @@ class ConfigurationImporter
         when '5.001' # percentage 0-100
           # custom code tells what is state
           case ha_obj_type
-          when 'light'; new_obj.has_key?('brightness_address') ? 'brightness_state_address' : 'brightness_address'
+          when 'light'; ga[:custom][:is_state] ? 'brightness_state_address' : 'brightness_address'
           when 'cover'; 'position_address'
           else nil
           end
@@ -171,31 +175,30 @@ class ConfigurationImporter
           @logger.warn("unexpected nil property name for #{ga} : #{o}")
           next
         end
-        @logger.warn("overwriting value #{ha_property} : #{new_obj[ha_property]} with #{ga[:address]}") if new_obj.has_key?(ha_property)
+        @logger.error("overwriting value #{ha_property} : #{new_obj[ha_property]} with #{ga[:address]}") if new_obj.has_key?(ha_property)
         new_obj[ha_property]=ga[:address]
       end
-      knx[ha_obj_type]=[] unless knx.has_key?(ha_obj_type)
-      knx[ha_obj_type].push(new_obj)
+      haknx[ha_obj_type]=[] unless haknx.has_key?(ha_obj_type)
+      haknx[ha_obj_type].push(new_obj)
     end
-    #
-    @knx[:ga].values.select{|ga|ga[:objs].empty?}.each do |ga|
-      @logger.error("group not in object: #{ga[:address]}: Create custom object in lambda if needed , or use ETS to create functions")
-    end
-    return {'knx'=>knx}.to_yaml
+    return {'knx'=>haknx}.to_yaml
   end
 
   # https://sourceforge.net/p/linknx/wiki/Object_Definition_section/
   def linknx
-    return @knx[:ga].values.map do |ga|
+    return @data[:ga].values.sort{|a,b|a[:address]<=>b[:address]}.map do |ga|
       %Q(        <object type="#{ga[:datapoint]}" id="id_#{ga[:address].gsub('/','_')}" gad="#{ga[:address]}" init="request">#{ga[:linknx_disp_name]}</object>)
     end.join("\n")
   end
 
 end
 
-raise "Usage: #{$0} etsprojectfile.knxproj format [special]" unless ARGV.length >= 2 and ARGV.length  <= 3
+raise "Usage: #{$0} format <etsprojectfile>.knxproj [custom lambda]" unless ARGV.length >= 2 and ARGV.length  <= 3
 format=ARGV.shift.to_sym
 infile=ARGV.shift
+knxconf=ConfigurationImporter.new(infile)
 raise 'no such format' unless [:homeass,:linknx].include?(format)
+# apply special code if provided
 special=ARGV.shift
-$stdout.write(ConfigurationImporter.new(infile,special).send(format))
+eval(File.read(special)).call(knxconf.data) unless special.nil?
+$stdout.write(knxconf.send(format))

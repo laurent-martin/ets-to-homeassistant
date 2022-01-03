@@ -11,3 +11,5 @@ clean:
 	rm -f *$(HA_EXT) *$(LK_EXT) *$(XK_EXT)
 unit:
 	./ets_to_hass.rb homeass Style1.knxproj
+	./ets_to_hass.rb homeass Style2.knxproj
+	./ets_to_hass.rb homeass Style3.knxproj

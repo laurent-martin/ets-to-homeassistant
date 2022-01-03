@@ -10,10 +10,16 @@ A Ruby script to convert an ETS5 project file (*.knxproj) into:
 
 ## Usage
 
+Install Ruby for your platform (Windows, macOS, Linux), install required gems (xmlsimple, zip).
+
 ```
 ./ets_to_hass.rb <xknx|homeass|linknx> <input file> [<special processing lambda>]
 ```
 
+Set env var DEBUG to one of: debug, info, warn, error (default is info)
+
+Set env var GADDRSTYLE to Free, TwoLevel, ThreeLevel to override project group address style.
+    
 ## Structure in ETS
 
 The script takes the exported file with extension: `knxproj`.

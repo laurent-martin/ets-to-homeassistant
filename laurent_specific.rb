@@ -36,14 +36,12 @@ lambda do |knx|
     # set name as room + function
     o[:custom][:ha_init]={'name'=>"#{o[:name]} #{o[:room]}"}
     # set my specific parameters
-    if o[:type].eql?(:sun_protection)
-      o[:custom][:ha_init].merge!({
-        'travelling_time_down'=>59,
-        'travelling_time_up'=>59
-      })
-    end
+    o[:custom][:ha_init].merge!({'travelling_time_down'=>59,'travelling_time_up'=>59}) if o[:type].eql?(:sun_protection)
+    o[:custom][:ha_type]='switch' if o[:type].eql?(:custom)
   end
-  # 3- manage group addresses without object
+  # 3- designate state address: x/1/x and x/4/x
+  knx[:ga].values.each{|ga|ga[:custom][:is_state]=true if ga[:address] =~ %r{^0/[14]/}}
+  # 4- manage group addresses without object
   error=false
   knx[:ga].values.select{|ga|ga[:objs].empty?}.each do |ga|
     error=true
