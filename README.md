@@ -47,25 +47,25 @@ Support is dropped for the moment, until needed.
 Once the project file has been parsed, an object of type: `ConfigurationImporter` is created with property: `data`. structured like this:
 
 ```
-data ={
+{
 	ob:{
 		_obid_ => {
-			name:   "...",
+			name:   "from ETS",
 			type:   "object type, see below",
-			floor:  name of floor,
-			room:   name of room,
+			floor:  "from ETS",
+			room:   "from ETS",
 			ga:     [list of included group addresses identifiers],
 			custom: {custom values set by lambda: ha_init, ha_type}
 		},...
 	},
 	ga:{
 		_gaid_ => {
-			name:             "name",
-			description:      description,
+			name:             "from ETS",
+			description:      "from ETS",
 			address:          group address as string. e.g. "x/y/z" depending on project style,
 			datapoint:        datapoint type as string "x.00y",
 			objs:             [list of objects ids with this ga],
-			custom:           {custom values set by lambda: ha_property, linknx_disp_name }                                            # 
+			custom:           {custom values set by lambda: ha_address_type, linknx_disp_name }                                            # 
 		},...
 	}
 }
@@ -77,9 +77,17 @@ types include:
 :custom,:switchable_light,:dimmable_light,:sun_protection,:heating_radiator,:heating_floor,:heating_switching_variable,:heating_continuous_variable
 ```
 
-It is possible to provide a post-processing function that can modify the analyzed structure, either to add information or change objects.
+It is possible to provide a post-processing function that can modify the analyzed structure.
 
-For instance if you use naming conventions or information in the description field of group address.
+The function may delete objects, or create objects.
 
-The function is called on the global data hash, which contains both group address and building information.
+The function can add fields in the `:custom` properties which can:
 
+- `ha_init` : initialize the HA object with some values
+- `ha_type` : force the entity type in HA
+- `ha_address_type` : define the use for the group address
+- `linknx_disp_name` : set the descriptio  of group address in linknx
+
+The function can use any information such as fields of the object, or description or name of group address for that.
+
+The function is called with the `ConfigurationImporter` as argument, from which property `data` is used.

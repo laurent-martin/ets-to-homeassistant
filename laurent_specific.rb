@@ -42,8 +42,8 @@ lambda do |knxconf|
   end
   # 3- I use x/1/x for state and x/4/x for bightness state
   knx[:ga].values.each do |ga|
-    ga[:custom][:ha_property]='state_address' if ga[:address].include?('/1/')
-    ga[:custom][:ha_property]='brightness_state_address' if ga[:address].include?('/4/')
+    ga[:custom][:ha_address_type]='state_address' if ga[:address].include?('/1/')
+    ga[:custom][:ha_address_type]='brightness_state_address' if ga[:address].include?('/4/')
   end
   # 4- manage group addresses without object
   error=false

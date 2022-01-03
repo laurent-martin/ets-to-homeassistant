@@ -152,7 +152,7 @@ class ConfigurationImporter
         ga=@data[:ga][garef]
         next if ga.nil?
         # find property name based on datapoint
-        ha_property=ga[:custom][:ha_property] || case ga[:datapoint]
+        ha_address_type=ga[:custom][:ha_address_type] || case ga[:datapoint]
         when '1.001';'address' # switch on/off or state
         when '1.008';'move_long_address' # up/down
         when '1.010';'stop_address' # stop
@@ -168,15 +168,15 @@ class ConfigurationImporter
         else
           @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): no mapping for datapoint #{ga[:datapoint]}");next
         end
-        if ha_property.nil?
+        if ha_address_type.nil?
           @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): unexpected nil property name")
           next
         end
-        if new_obj.has_key?(ha_property)
-          @logger.error("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): ignoring for #{ha_property} already set with #{new_obj[ha_property]}")
+        if new_obj.has_key?(ha_address_type)
+          @logger.error("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): ignoring for #{ha_address_type} already set with #{new_obj[ha_address_type]}")
           next
         end
-        new_obj[ha_property]=ga[:address]
+        new_obj[ha_address_type]=ga[:address]
       end
       haknx[ha_obj_type]=[] unless haknx.has_key?(ha_obj_type)
       haknx[ha_obj_type].push(new_obj)
