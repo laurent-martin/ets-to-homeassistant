@@ -24,12 +24,10 @@ class ConfigurationImporter
   def process_ga(ga)
     # build object for each group address
     group={
-      id:               ga['Id'].freeze,                              # ETS: internal id
       name:             ga['Name'].freeze,                            # ETS: name field
       description:      ga['Description'].freeze,                     # ETS: description field
       address:          @addrparser.call(ga['Address'].to_i).freeze,  # group address as string. e.g. "x/y/z" depending on project style
       datapoint:        nil,                                          # datapoint type as string "x.00y"
-      linknx_disp_name: ga['Name'],                                   # (modifiable by custom lambda) linknx: display name of group address (no < or >)
       objs:             [],                                           # objects ids, it may be in multiple objects
       custom:           {}                                            # modified by lambda
     }
@@ -46,7 +44,7 @@ class ConfigurationImporter
       return
     end
     # Index is the internal Id in xml file
-    @data[:ga][group[:id]]=group.freeze
+    @data[:ga][ga['Id'].freeze]=group.freeze
     @logger.debug("group: #{group}")
   end
 
@@ -112,7 +110,7 @@ class ConfigurationImporter
   attr_reader :data
 
   def initialize(file)
-    @data={ga: {}, ob: {}}
+    @data={ob: {}, ga: {}}
     @logger = Logger.new(STDERR)
     @logger.level=ENV.has_key?('DEBUG') ? ENV['DEBUG'] : Logger::INFO
     project=read_file(file)
@@ -154,28 +152,30 @@ class ConfigurationImporter
         ga=@data[:ga][garef]
         next if ga.nil?
         # find property name based on datapoint
-        ha_property=case ga[:datapoint]
-        when '1.001';ga[:custom][:is_state] ? 'state_address' : 'address' # switch on/off or state
+        ha_property=ga[:custom][:ha_property] || case ga[:datapoint]
+        when '1.001';'address' # switch on/off or state
         when '1.008';'move_long_address' # up/down
         when '1.010';'stop_address' # stop
         when '1.011';'state_address' # switch state
-        when '3.007';next # dimming control: used by buttons
+        when '3.007';@logger.debug("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): ignoring datapoint");next # dimming control: used by buttons
         when '5.001' # percentage 0-100
           # custom code tells what is state
           case ha_obj_type
-          when 'light'; ga[:custom][:is_state] ? 'brightness_state_address' : 'brightness_address'
+          when 'light'; 'brightness_address'
           when 'cover'; 'position_address'
-          else nil
+          else @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): no mapping for datapoint #{ga[:datapoint]}");next
           end
         else
-          @logger.warn("no mapping for group address: #{ga[:address]} : #{ga[:name]}: #{ga[:datapoint]}")
-          next
+          @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): no mapping for datapoint #{ga[:datapoint]}");next
         end
         if ha_property.nil?
-          @logger.warn("unexpected nil property name for #{ga} : #{o}")
+          @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): unexpected nil property name")
           next
         end
-        @logger.error("overwriting value #{ha_property} : #{new_obj[ha_property]} with #{ga[:address]}") if new_obj.has_key?(ha_property)
+        if new_obj.has_key?(ha_property)
+          @logger.error("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): ignoring for #{ha_property} already set with #{new_obj[ha_property]}")
+          next
+        end
         new_obj[ha_property]=ga[:address]
       end
       haknx[ha_obj_type]=[] unless haknx.has_key?(ha_obj_type)
@@ -187,7 +187,8 @@ class ConfigurationImporter
   # https://sourceforge.net/p/linknx/wiki/Object_Definition_section/
   def generate_linknx
     return @data[:ga].values.sort{|a,b|a[:address]<=>b[:address]}.map do |ga|
-      %Q(        <object type="#{ga[:datapoint]}" id="id_#{ga[:address].gsub('/','_')}" gad="#{ga[:address]}" init="request">#{ga[:linknx_disp_name]}</object>)
+      linknx_disp_name=ga[:custom][:linknx_disp_name] || ga[:name]
+      %Q(        <object type="#{ga[:datapoint]}" id="id_#{ga[:address].gsub('/','_')}" gad="#{ga[:address]}" init="request">#{linknx_disp_name}</object>)
     end.join("\n")
   end
 

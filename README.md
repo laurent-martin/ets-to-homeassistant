@@ -44,6 +44,39 @@ Support is dropped for the moment, until needed.
 
 ## Special processing
 
+Once the project file has been parsed, an object of type: `ConfigurationImporter` is created with property: `data`. structured like this:
+
+```
+data ={
+	ob:{
+		_obid_ => {
+			name:   "...",
+			type:   "object type, see below",
+			floor:  name of floor,
+			room:   name of room,
+			ga:     [list of included group addresses identifiers],
+			custom: {custom values set by lambda: ha_init, ha_type}
+		},...
+	},
+	ga:{
+		_gaid_ => {
+			name:             "name",
+			description:      description,
+			address:          group address as string. e.g. "x/y/z" depending on project style,
+			datapoint:        datapoint type as string "x.00y",
+			objs:             [list of objects ids with this ga],
+			custom:           {custom values set by lambda: ha_property, linknx_disp_name }                                            # 
+		},...
+	}
+}
+```
+
+types include:
+
+```
+:custom,:switchable_light,:dimmable_light,:sun_protection,:heating_radiator,:heating_floor,:heating_switching_variable,:heating_continuous_variable
+```
+
 It is possible to provide a post-processing function that can modify the analyzed structure, either to add information or change objects.
 
 For instance if you use naming conventions or information in the description field of group address.
