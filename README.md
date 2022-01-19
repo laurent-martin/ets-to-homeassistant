@@ -17,8 +17,15 @@ Install Ruby for your platform (Windows, macOS, Linux), install required gems (x
 
 Set env var DEBUG to one of: debug, info, warn, error (default is info)
 
+```
+DEBUG=debug ./ets_to_hass.rb homeass foo.knxproj
+```
+
 Set env var GADDRSTYLE to Free, TwoLevel, ThreeLevel to override project group address style.
-    
+
+The special processing lambda is `default_custom.rb` if none is provided.
+It will generate basic Objects/Functions for group addresses not part of a function.
+
 ## Structure in ETS
 
 The script takes the exported file with extension: `knxproj`.
@@ -40,7 +47,7 @@ So, it is mandatory to create functions in order for the script to find objects.
 
 ## XKNX
 
-Support is dropped for the moment, until needed.
+Support is dropped for the moment, until needed, but it is close enough to HA.
 
 ## Special processing
 
@@ -70,6 +77,9 @@ Once the project file has been parsed, an object of type: `ConfigurationImporter
 	}
 }
 ```
+
+* `_obid_` is the internal identifer of the function in ETS
+* `_gaid_` is the internal identifer of the group address in ETS
 
 types include:
 

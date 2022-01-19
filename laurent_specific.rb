@@ -4,17 +4,19 @@ lambda do |knxconf|
   o_delete=[] # id of objects to delete
   o_new={} # objects to add
   knx[:ob].each do |k,o|
+    # manage in special manner my blinds, identified by "pulse" in group name
     if o[:type].eql?(:sun_protection) and knx[:ga][o[:ga].first][:name].end_with?(':Pulse')
-      # split this object into 2: delete old object
+      # split this object into 2: so delete old object
       o_delete.push(k)
       # create one obj per GA
       o[:ga].each do |gid|
+        # get direction of ga based on name
         direction=case knx[:ga][gid][:name]
         when /Montee/;'Montee'
         when /Descente/;'Descente'
         else raise "error: #{knx[:ga][gid][:name]}"
         end
-        # fix datapoint for ga
+        # fix datapoint for ga (I have set up/down in ETS)
         knx[:ga][gid][:datapoint].replace('1.001')
         # create new object
         o_new["#{k}_#{direction}"]={

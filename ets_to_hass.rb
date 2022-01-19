@@ -9,7 +9,15 @@ require 'logger'
 
 class ConfigurationImporter
   ETS_EXT='.knxproj'
+  ENV_DEBUG='DEBUG'
+  ENV_GADDRSTYLE='GADDRSTYLE'
+  GADDR_CONV={
+    Free:       lambda{|a|a.to_s},
+    TwoLevel:   lambda{|a|[(a>>11)&31,a&2047].join('/')},
+    ThreeLevel: lambda{|a|[(a>>11)&31,(a>>8)&7,a&255].join('/')}
+  }
   private_constant :ETS_EXT
+
   def self.my_dig(entry_point,path)
     path.each do |n|
       entry_point=entry_point[n]
@@ -70,6 +78,9 @@ class ConfigurationImporter
       info[:room]=space['Name']
       # loop on group addresses
       space['Function'].each do |f|
+        @logger.debug("function #{f}")
+        # ignore functions without group address
+        next unless f.has_key?('GroupAddressRef')
         if m=f['Type'].match(/^FT-([0-9])$/)
           type=KNOWN_FUNCTIONS[m[1].to_i]
         else
@@ -111,19 +122,16 @@ class ConfigurationImporter
 
   def initialize(file)
     @data={ob: {}, ga: {}}
+    # log to stderr, so that redirecting stdout captures only generated data
     @logger = Logger.new(STDERR)
-    @logger.level=ENV.has_key?('DEBUG') ? ENV['DEBUG'] : Logger::INFO
+    @logger.level=ENV.has_key?(ENV_DEBUG) ? ENV[ENV_DEBUG] : Logger::INFO
     project=read_file(file)
     proj_info=self.class.my_dig(project[:info],['Project','ProjectInformation'])
-    group_addr_style=ENV.has_key?('GADDRSTYLE') ? ENV['GADDRSTYLE'] : proj_info['GroupAddressStyle']
+    group_addr_style=ENV.has_key?(ENV_GADDRSTYLE) ? ENV[ENV_GADDRSTYLE] : proj_info['GroupAddressStyle']
     @logger.info("Using project #{proj_info['Name']}, address style: #{group_addr_style}")
     # set group address formatter according to project settings
-    @addrparser=case group_addr_style # take int , returns str
-    when 'Free';      lambda{|a|a.to_s}
-    when 'TwoLevel';  lambda{|a|[(a>>11)&31,a&2047].join('/')}
-    when 'ThreeLevel';lambda{|a|[(a>>11)&31,(a>>8)&7,a&255].join('/')}
-    else raise "Error: #{group_addr_style}"
-    end
+    @addrparser=GADDR_CONV[group_addr_style.to_sym]
+    raise "Error: no such style #{group_addr_style} in #{GADDR_CONV.keys}" if @addrparser.nil?
     installation=self.class.my_dig(project[:data],['Project','Installations','Installation'])
     # process group ranges
     process_group_ranges(self.class.my_dig(installation,['GroupAddresses','GroupRanges']))
@@ -198,11 +206,15 @@ GENPREFIX='generate_'
 genformats=(ConfigurationImporter.instance_methods-ConfigurationImporter.superclass.instance_methods).
 select{|m|m.start_with?(GENPREFIX)}.
 map{|m|m[GENPREFIX.length..-1]}
-
-raise "Usage: #{$0} [#{genformats.join('|')}] <etsprojectfile>.knxproj [custom lambda]" unless ARGV.length >= 2 and ARGV.length  <= 3
+if ARGV.length < 2 or ARGV.length > 3
+  STDERR.puts("Usage: #{$0} [#{genformats.join('|')}] <etsprojectfile>.knxproj [custom lambda]")
+  STDERR.puts("env var #{ConfigurationImporter::ENV_DEBUG}: debug, info, warn, error")
+  STDERR.puts("env var #{ConfigurationImporter::ENV_GADDRSTYLE}: #{ConfigurationImporter::GADDR_CONV.keys.map{|i|i.to_s}.join(', ')} to override value in project")
+  Process.exit(1)
+end
 format=ARGV.shift
 infile=ARGV.shift
-custom_lambda=ARGV.shift
+custom_lambda=ARGV.shift || File.join(File.dirname(__FILE__),'default_custom.rb')
 raise "Error: no such output format: #{format}" unless genformats.include?(format)
 # read and parse file
 knxconf=ConfigurationImporter.new(infile)

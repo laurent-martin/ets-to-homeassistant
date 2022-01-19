@@ -1,11 +1,12 @@
+# generate
 lambda do |knxconf|
   # get data to manipulate
   knx=knxconf.data
   objid=0
   knx[:ga].each do |id,ga|
     if ga[:objs].empty?
-      puts "empty: #{ga}"
-      function={
+      # generate a dummy object with a single group address
+      knx[:ob][objid]={
         name:   ga[:name],
         type:   :custom, # unknown, so assume just switch
         ga:     [id],
@@ -13,9 +14,8 @@ lambda do |knxconf|
         room:   'unknown room',
         custom: {ha_type: 'switch'} # custom values
       }
-      knx[:ob][objid]=function
+      # prepare next object identifier
       objid+=1
     end
   end
-
 end
