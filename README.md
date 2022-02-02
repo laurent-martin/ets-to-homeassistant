@@ -1,15 +1,27 @@
-# ets-to-homeassistant
+# ETS project file to Home Assistant configuration
 
 A Ruby script to convert an ETS5 project file (*.knxproj) into:
 
 * a YAML configuration file suitable for Home Assistant (requires to define the building and functions in ETS)
-* an XML file for linknx (the object list only)
+* an XML file for `linknx` (the object list only)
 
 [https://www.home-assistant.io/integrations/knx/](https://www.home-assistant.io/integrations/knx/)
 
 ## Usage
 
-Install Ruby for your platform (Windows, macOS, Linux), install required gems (xmlsimple, zip).
+Install Ruby for your platform (Windows, macOS, Linux).
+
+Install required gems (`xml-simple`, `rubyzip`):
+
+```bash
+gem install bundler
+```
+
+```bash
+bundle install
+```
+
+Then, ready to use:
 
 ```
 ./ets_to_hass.rb <homeass|linknx> <input file> [<special processing lambda>]

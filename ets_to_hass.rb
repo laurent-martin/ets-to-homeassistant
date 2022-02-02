@@ -204,7 +204,7 @@ end
 
 GENPREFIX='generate_'
 genformats=(ConfigurationImporter.instance_methods-ConfigurationImporter.superclass.instance_methods).
-select{|m|m.start_with?(GENPREFIX)}.
+select{|m|m.to_s.start_with?(GENPREFIX)}.
 map{|m|m[GENPREFIX.length..-1]}
 if ARGV.length < 2 or ARGV.length > 3
   STDERR.puts("Usage: #{$0} [#{genformats.join('|')}] <etsprojectfile>.knxproj [custom lambda]")
