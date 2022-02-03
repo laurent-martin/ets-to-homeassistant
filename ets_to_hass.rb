@@ -8,17 +8,45 @@ require 'json'
 require 'logger'
 
 class ConfigurationImporter
+  # extension of ETS project file
   ETS_EXT='.knxproj'
+  # env var to set debug level
   ENV_DEBUG='DEBUG'
+  # env var to change address style
   ENV_GADDRSTYLE='GADDRSTYLE'
+  # converters of group address integer address into representation
   GADDR_CONV={
     Free:       lambda{|a|a.to_s},
     TwoLevel:   lambda{|a|[(a>>11)&31,a&2047].join('/')},
     ThreeLevel: lambda{|a|[(a>>11)&31,(a>>8)&7,a&255].join('/')}
-  }
-  private_constant :ETS_EXT
+  }.freeze
+  # from knx_master.xml in project file: index is from the FT-x identifier
+  ETS_FUNCTIONS=[:custom,:switchable_light,:dimmable_light,:sun_protection,:heating_radiator,:heating_floor,:dimmable_light,:sun_protection,:heating_switching_variable,:heating_continuous_variable]
+  private_constant :ETS_EXT, :ENV_DEBUG, :ENV_GADDRSTYLE, :GADDR_CONV, :ETS_FUNCTIONS
 
-  def self.my_dig(entry_point,path)
+  attr_reader :data
+
+  def initialize(file)
+    # parsed data
+    @data={ob: {}, ga: {}}
+    # log to stderr, so that redirecting stdout captures only generated data
+    @logger = Logger.new(STDERR)
+    @logger.level=ENV.has_key?(ENV_DEBUG) ? ENV[ENV_DEBUG] : Logger::INFO
+    project=read_file(file)
+    proj_info=self.class.dig_xml(project[:info],['Project','ProjectInformation'])
+    group_addr_style=ENV.has_key?(ENV_GADDRSTYLE) ? ENV[ENV_GADDRSTYLE] : proj_info['GroupAddressStyle']
+    @logger.info("Using project #{proj_info['Name']}, address style: #{group_addr_style}")
+    # set group address formatter according to project settings
+    @addrparser=GADDR_CONV[group_addr_style.to_sym]
+    raise "Error: no such style #{group_addr_style} in #{GADDR_CONV.keys}" if @addrparser.nil?
+    installation=self.class.dig_xml(project[:data],['Project','Installations','Installation'])
+    # process group ranges
+    process_group_ranges(self.class.dig_xml(installation,['GroupAddresses','GroupRanges']))
+    process_space(self.class.dig_xml(installation,['Locations']))
+  end
+
+  # helper function to dig through keys, knowning that we used ForceArray
+  def self.dig_xml(entry_point,path)
     path.each do |n|
       entry_point=entry_point[n]
       raise "ERROR: cannot find level #{n} in xml" if entry_point.nil?
@@ -29,6 +57,30 @@ class ConfigurationImporter
     return entry_point
   end
 
+  # Read both project.xml and 0.xml
+  # @return Hash {info: xmldata, data: xmldata}
+  def read_file(file)
+    raise "ETS file must end with #{ETS_EXT}" unless file.end_with?(ETS_EXT)
+    project={}
+    # read ETS5 file and get project file
+    Zip::File.open(file) do |zip_file|
+      zip_file.each do |entry|
+        case entry.name
+        when %r{P-[^/]+/project\.xml$};project[:info]=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
+        when %r{P-[^/]+/0\.xml$};project[:data]=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
+        end
+      end
+    end
+    return project
+  end
+
+  # process group range recursively and find addresses
+  def process_group_ranges(gr)
+    gr['GroupRange'].each{|sgr|process_group_ranges(sgr)} if gr.has_key?('GroupRange')
+    gr['GroupAddress'].each{|ga|process_ga(ga)} if gr.has_key?('GroupAddress')
+  end
+
+  # process a group address
   def process_ga(ga)
     # build object for each group address
     group={
@@ -56,14 +108,9 @@ class ConfigurationImporter
     @logger.debug("group: #{group}")
   end
 
-  def process_group_ranges(gr)
-    gr['GroupRange'].each{|sgr|process_group_ranges(sgr)} if gr.has_key?('GroupRange')
-    gr['GroupAddress'].each{|ga|process_ga(ga)} if gr.has_key?('GroupAddress')
-  end
-
-  # from knx_master.xml in project file
-  KNOWN_FUNCTIONS=[:custom,:switchable_light,:dimmable_light,:sun_protection,:heating_radiator,:heating_floor,:dimmable_light,:sun_protection,:heating_switching_variable,:heating_continuous_variable]
-
+  # process locations recursively, and find functions
+  # @param space the current space
+  # @param info current location information: floor, room
   def process_space(space,info=nil)
     @logger.debug("#{space['Type']}: #{space['Name']}")
     info=info.nil? ? {} : info.dup
@@ -82,9 +129,9 @@ class ConfigurationImporter
         # ignore functions without group address
         next unless f.has_key?('GroupAddressRef')
         if m=f['Type'].match(/^FT-([0-9])$/)
-          type=KNOWN_FUNCTIONS[m[1].to_i]
+          type=ETS_FUNCTIONS[m[1].to_i]
         else
-          raise "unknown function type: #{f['Type']}"
+          raise "ERROR: Unknown function type: #{f['Type']}"
         end
         o={
           name:   f['Name'].freeze,
@@ -93,49 +140,11 @@ class ConfigurationImporter
           custom: {} # custom values
         }.merge(info)
         # store reference to this object in the GAs
-        o[:ga].each do |g|
-          next unless @data[:ga].has_key?(g)
-          @data[:ga][g][:objs].push(f['Id'])
-        end
+        o[:ga].each{|g|@data[:ga][g][:objs].push(f['Id']) if @data[:ga].has_key?(g)}
         @logger.debug("function: #{o}")
         @data[:ob][f['Id']]=o.freeze
       end
     end
-  end
-
-  def read_file(file)
-    raise "ETS file must end with #{ETS_EXT}" unless file.end_with?(ETS_EXT)
-    project={}
-    # read ETS5 file and get project file
-    Zip::File.open(file) do |zip_file|
-      zip_file.each do |entry|
-        case entry.name
-        when %r{P-[^/]+/project\.xml$};project[:info]=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
-        when %r{P-[^/]+/0\.xml$};project[:data]=XmlSimple.xml_in(entry.get_input_stream.read, {'ForceArray' => true})
-        end
-      end
-    end
-    return project
-  end
-
-  attr_reader :data
-
-  def initialize(file)
-    @data={ob: {}, ga: {}}
-    # log to stderr, so that redirecting stdout captures only generated data
-    @logger = Logger.new(STDERR)
-    @logger.level=ENV.has_key?(ENV_DEBUG) ? ENV[ENV_DEBUG] : Logger::INFO
-    project=read_file(file)
-    proj_info=self.class.my_dig(project[:info],['Project','ProjectInformation'])
-    group_addr_style=ENV.has_key?(ENV_GADDRSTYLE) ? ENV[ENV_GADDRSTYLE] : proj_info['GroupAddressStyle']
-    @logger.info("Using project #{proj_info['Name']}, address style: #{group_addr_style}")
-    # set group address formatter according to project settings
-    @addrparser=GADDR_CONV[group_addr_style.to_sym]
-    raise "Error: no such style #{group_addr_style} in #{GADDR_CONV.keys}" if @addrparser.nil?
-    installation=self.class.my_dig(project[:data],['Project','Installations','Installation'])
-    # process group ranges
-    process_group_ranges(self.class.my_dig(installation,['GroupAddresses','GroupRanges']))
-    process_space(self.class.my_dig(installation,['Locations']))
   end
 
   def generate_homeass
@@ -202,10 +211,13 @@ class ConfigurationImporter
 
 end
 
+# prefix of generation methods
 GENPREFIX='generate_'
+# get list of generation methods
 genformats=(ConfigurationImporter.instance_methods-ConfigurationImporter.superclass.instance_methods).
 select{|m|m.to_s.start_with?(GENPREFIX)}.
 map{|m|m[GENPREFIX.length..-1]}
+# process command line args
 if ARGV.length < 2 or ARGV.length > 3
   STDERR.puts("Usage: #{$0} [#{genformats.join('|')}] <etsprojectfile>.knxproj [custom lambda]")
   STDERR.puts("env var #{ConfigurationImporter::ENV_DEBUG}: debug, info, warn, error")
@@ -216,8 +228,9 @@ format=ARGV.shift
 infile=ARGV.shift
 custom_lambda=ARGV.shift || File.join(File.dirname(__FILE__),'default_custom.rb')
 raise "Error: no such output format: #{format}" unless genformats.include?(format)
-# read and parse file
+# read and parse ETS file
 knxconf=ConfigurationImporter.new(infile)
 # apply special code if provided
 eval(File.read(custom_lambda)).call(knxconf) unless custom_lambda.nil?
+# generate result
 $stdout.write(knxconf.send("#{GENPREFIX}#{format}".to_sym))

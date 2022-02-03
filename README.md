@@ -9,29 +9,25 @@ A Ruby script to convert an ETS5 project file (*.knxproj) into:
 
 ## Usage
 
-Install Ruby for your platform (Windows, macOS, Linux).
+[Install Ruby for your platform](https://www.ruby-lang.org/fr/downloads/):
+
+* Linux: builtin (yum, apt), or [RVM](https://rvm.io/), or [rbenv](https://github.com/rbenv/rbenv)
+* macOS: builtin, or [RVM](https://rvm.io/), or [brew](https://brew.sh/), or [rbenv](https://github.com/rbenv/rbenv)
+* Windows: [Ruby Installer](https://rubyinstaller.org/)
 
 Install required gems (`xml-simple`, `rubyzip`):
 
-```bash
-gem install bundler
-```
+    gem install bundler
 
-```bash
-bundle install
-```
+    bundle install
 
 Then, ready to use:
 
-```
-./ets_to_hass.rb <homeass|linknx> <input file> [<special processing lambda>]
-```
+    ./ets_to_hass.rb <homeass|linknx> <input file> [<special processing lambda file>]
 
 Set env var DEBUG to one of: debug, info, warn, error (default is info)
 
-```
-DEBUG=debug ./ets_to_hass.rb homeass foo.knxproj
-```
+    DEBUG=debug ./ets_to_hass.rb homeass foo.knxproj
 
 Set env var GADDRSTYLE to Free, TwoLevel, ThreeLevel to override project group address style.
 
@@ -63,9 +59,10 @@ Support is dropped for the moment, until needed, but it is close enough to HA.
 
 ## Special processing
 
-Once the project file has been parsed, an object of type: `ConfigurationImporter` is created with property: `data`. structured like this:
+Once the project file has been parsed, an object of type: `ConfigurationImporter`.
+It's property `data` contains the project data and is structured like this:
 
-```
+```ruby
 {
 	ob:{
 		_obid_ => {
@@ -73,7 +70,7 @@ Once the project file has been parsed, an object of type: `ConfigurationImporter
 			type:   "object type, see below",
 			floor:  "from ETS",
 			room:   "from ETS",
-			ga:     [list of included group addresses identifiers],
+			ga:     [list of _gaid_ included in this object],
 			custom: {custom values set by lambda: ha_init, ha_type}
 		},...
 	},
@@ -83,32 +80,36 @@ Once the project file has been parsed, an object of type: `ConfigurationImporter
 			description:      "from ETS",
 			address:          group address as string. e.g. "x/y/z" depending on project style,
 			datapoint:        datapoint type as string "x.00y",
-			objs:             [list of objects ids with this ga],
+			objs:             [list of _obid_ using this group address],
 			custom:           {custom values set by lambda: ha_address_type, linknx_disp_name }                                            # 
 		},...
 	}
 }
 ```
 
-* `_obid_` is the internal identifer of the function in ETS
-* `_gaid_` is the internal identifer of the group address in ETS
+* `_obid_` is the internal identifier of the function in ETS
+* `_gaid_` is the internal identifier of the group address in ETS
 
-types include:
+**object type** are functions defined by ETS:
 
-```
-:custom,:switchable_light,:dimmable_light,:sun_protection,:heating_radiator,:heating_floor,:heating_switching_variable,:heating_continuous_variable
-```
+* `:custom`
+* `:switchable_light`
+* `:dimmable_light`
+* `:sun_protection`
+* `:heating_radiator`
+* `:heating_floor`
+* `:heating_switching_variable`
+* `:heating_continuous_variable`
 
-It is possible to provide a post-processing function that can modify the analyzed structure.
+The optional post-processing function can modify the analyzed structure:
 
-The function may delete objects, or create objects.
-
-The function can add fields in the `:custom` properties which can:
+* It can delete objects, or create objects.
+* It can add fields in the `:custom` properties:
 
 - `ha_init` : initialize the HA object with some values
 - `ha_type` : force the entity type in HA
 - `ha_address_type` : define the use for the group address
-- `linknx_disp_name` : set the descriptio  of group address in linknx
+- `linknx_disp_name` : set the description of group address in `linknx`
 
 The function can use any information such as fields of the object, or description or name of group address for that.
 
