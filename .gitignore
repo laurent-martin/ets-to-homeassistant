@@ -3,3 +3,4 @@
 /tmp/
 *.ha.yaml
 *.linknx.xml
+.vscode

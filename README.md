@@ -7,7 +7,7 @@ A Ruby script to convert an ETS5 project file (*.knxproj) into:
 
 [https://www.home-assistant.io/integrations/knx/](https://www.home-assistant.io/integrations/knx/)
 
-## Usage
+## Installation
 
 [Install Ruby for your platform](https://www.ruby-lang.org/fr/downloads/):
 
@@ -15,21 +15,29 @@ A Ruby script to convert an ETS5 project file (*.knxproj) into:
 * macOS: builtin, or [RVM](https://rvm.io/), or [brew](https://brew.sh/), or [rbenv](https://github.com/rbenv/rbenv)
 * Windows: [Ruby Installer](https://rubyinstaller.org/)
 
+Clone this repo:
+
+    git clone https://github.com/laurent-martin/ets-to-homeassistant.git
+
 Install required gems (`xml-simple`, `rubyzip`):
+
+    cd ets-to-homeassistant
 
     gem install bundler
 
     bundle install
 
-Then, ready to use:
+## Usage
+
+Once ruby is installed and this repo cloned, change directory to the main folder and execute:
 
     ./ets_to_hass.rb <homeass|linknx> <input file> [<special processing lambda file>]
 
-Set env var DEBUG to one of: debug, info, warn, error (default is info)
+Set env var `DEBUG` to one of: `debug`, `info`, `warn`, `error` (default is `info`)
 
     DEBUG=debug ./ets_to_hass.rb homeass foo.knxproj
 
-Set env var GADDRSTYLE to Free, TwoLevel, ThreeLevel to override project group address style.
+Set env var `GADDRSTYLE` to `Free`, `TwoLevel`, `ThreeLevel` to override project group address style.
 
 The special processing lambda is `default_custom.rb` if none is provided.
 It will generate basic Objects/Functions for group addresses not part of a function.
