@@ -22,7 +22,7 @@ class ConfigurationImporter
   }.freeze
   # from knx_master.xml in project file: index is from the FT-x identifier
   ETS_FUNCTIONS=[:custom,:switchable_light,:dimmable_light,:sun_protection,:heating_radiator,:heating_floor,:dimmable_light,:sun_protection,:heating_switching_variable,:heating_continuous_variable]
-  private_constant :ETS_EXT, :ENV_DEBUG, :ENV_GADDRSTYLE, :GADDR_CONV, :ETS_FUNCTIONS
+  private_constant :ETS_EXT, :ETS_FUNCTIONS
 
   attr_reader :data
 
@@ -47,6 +47,7 @@ class ConfigurationImporter
 
   # helper function to dig through keys, knowning that we used ForceArray
   def self.dig_xml(entry_point,path)
+    raise "ERROR: wrong entry point: #{entry_point.class}" unless entry_point.is_a?(Hash)
     path.each do |n|
       entry_point=entry_point[n]
       raise "ERROR: cannot find level #{n} in xml" if entry_point.nil?
@@ -71,6 +72,7 @@ class ConfigurationImporter
         end
       end
     end
+    raise "Did not find project information or data (#{project.keys})" unless project.keys.sort.eql?([:data,:info])
     return project
   end
 
