@@ -45,12 +45,16 @@ Set env var `GADDRSTYLE` to `Free`, `TwoLevel`, `ThreeLevel` to override project
 
 For example to generate the home assistant KNX configuration from the exported ETS project: `myexport.knxproj`
 
-    ./ets_to_hass.rb homeass myexport.knxproj
+    ./ets_to_hass.rb homeass myexport.knxproj > ha.yaml
 
-    DEBUG=debug ./ets_to_hass.rb homeass myexport.knxproj
+    DEBUG=debug ./ets_to_hass.rb homeass myexport.knxproj > ha.yaml
 
 The special processing lambda is `default_custom.rb` if none is provided.
 It will generate basic Objects/Functions for group addresses not part of a function.
+
+The generated result is displayed on terminal (STDOUT), so to store in a file, redirect using `>`.
+
+Logs are sent to STDERR.
 
 ## Structure in ETS
 
@@ -137,3 +141,7 @@ The optional post-processing function can modify the analyzed structure:
 The function can use any information such as fields of the object, or description or name of group address for that.
 
 The function is called with the `ConfigurationImporter` as argument, from which property `data` is used.
+
+## Reporting issues
+
+Include the version of ETS used and logs.
