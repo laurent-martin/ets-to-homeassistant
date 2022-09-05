@@ -148,7 +148,7 @@ class ConfigurationImporter
         end
         o = {
           name: f['Name'].freeze,
-          type:,
+          type: type,
           ga: f['GroupAddressRef'].map { |g| g['RefId'].freeze },
           custom: {} # custom values
         }.merge(info)
