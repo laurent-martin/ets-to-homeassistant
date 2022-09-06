@@ -58,7 +58,7 @@ Logs are sent to STDERR.
 
 ## Structure in ETS
 
-The script takes the exported file with extension: `knxproj`.
+The script takes the exported file from ETS with extension: `knxproj`.
 This file is a zip with several XML files in it.
 The script parses the first project file found.
 It extracts group address information, as well as Building information.
@@ -66,8 +66,8 @@ Make sure that the project file is not password protected.
 
 <p align="center"><img src="images/ets5.png" width="100%"/><br/>Fig. 1 ETS 5 with building</p>
 
-Building "functions" are used to gernerate H.A. objects. If the ETS project has no building information, then
-the script will create one object per group address.
+Building "functions" are used to gernerate H.A. objects.
+If the ETS project has no building information, then the script will create one object per group address.
 It is also possible to add this information using the third argument (script) which can add missing information, based, for example, on group address name.
 
 ## Home Assistant
