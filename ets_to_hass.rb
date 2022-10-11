@@ -213,7 +213,6 @@ class ConfigurationImporter
               when 'light' then 'brightness_address'
               when 'cover' then 'position_address'
               else @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): no mapping for datapoint #{ga[:datapoint]}")
-
                    next
               end
             else
@@ -268,6 +267,6 @@ raise "Error: no such output format: #{format}" unless genformats.include?(forma
 # read and parse ETS file
 knxconf = ConfigurationImporter.new(infile)
 # apply special code if provided
-eval(File.read(custom_lambda)).call(knxconf) unless custom_lambda.nil?
+eval(File.read(custom_lambda),binding,custom_lambda).call(knxconf) unless custom_lambda.nil?
 # generate result
 $stdout.write(knxconf.send("#{GENPREFIX}#{format}".to_sym))
