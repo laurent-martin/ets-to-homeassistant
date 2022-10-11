@@ -46,7 +46,11 @@ class ConfigurationImporter
     installation = self.class.dig_xml(project[:data], %w[Project Installations Installation])
     # process group ranges
     process_group_ranges(self.class.dig_xml(installation, %w[GroupAddresses GroupRanges]))
-    process_space(self.class.dig_xml(installation, ['Locations']))
+    begin
+      process_space(self.class.dig_xml(installation, ['Locations']))
+    rescue
+      @logger.warn('No builing information')
+    end
   end
 
   # helper function to dig through keys, knowning that we used ForceArray
