@@ -7,9 +7,21 @@ A Ruby script to convert an ETS5 project file (`*.knxproj`) into:
 
 [https://www.home-assistant.io/integrations/knx/](https://www.home-assistant.io/integrations/knx/)
 
-Important note: if only group addresses are defined in ETS, then the script cannot collate them into a single H.A. object.
-For example: switch, state and dimming function of a single light.
-For details, see section [Structure in ETS](#structure-in-ets)
+## Important note
+
+Actionable entities in KNX are "Group Addresses" (GA).
+For example a dimmable light has a group address for On/Off and another for the dimmig value.
+
+In Home Assistant, actionable entities are devices.
+For example, a dimmable light is a device and has properties, one of them is the group address for On/Off and another for the dimming value.
+
+By default, and in fact in a lot of ETS projects, only group addresses are defined as this is sufficient for an installation.
+So **there is no standard way** of collating several GA into devices usable by Home Assistant.
+
+This tool provides two ways in order to generate Home Assistant devices with related Group Addresses:
+
+- Either define **Functions** using the ETS software: refer to [Structure in ETS](#structure-in-ets)
+- Or create a custom Ruby function that is able to detect GAs that are part of the same device: refer to [Custom method](#custom-method)
 
 ## Installation
 
@@ -21,15 +33,19 @@ For details, see section [Structure in ETS](#structure-in-ets)
 
 Clone this repo:
 
-    git clone https://github.com/laurent-martin/ets-to-homeassistant.git
+```bash
+git clone https://github.com/laurent-martin/ets-to-homeassistant.git
+````
 
 Install required gems (`xml-simple`, `rubyzip`):
 
-    cd ets-to-homeassistant
+```bash
+cd ets-to-homeassistant
 
-    gem install bundler
+gem install bundler
 
-    bundle install
+bundle install
+```
 
 ## Usage
 
@@ -37,17 +53,21 @@ Once Ruby is installed and this repo cloned, change directory to the main folder
 
 The general invokation syntax:
 
-    ./ets_to_hass.rb <homeass|linknx> <input file> [<special processing lambda file>]
+```bash
+./ets_to_hass.rb <homeass|linknx> <input file> [<special processing lambda file>]
+```
 
 Set env var `DEBUG` to one of: `debug`, `info`, `warn`, `error` (default is `info`)
 
-Set env var `GADDRSTYLE` to `Free`, `TwoLevel`, `ThreeLevel` to override project group address style. (Else, the tool detects the one used in the project).
+Set env var `GADDRSTYLE` to `Free`, `TwoLevel`, `ThreeLevel` to override project group address style.
+By default, the tool detects the style used in the project.
 
 For example to generate the home assistant KNX configuration from the exported ETS project: `myexport.knxproj`
 
-    ./ets_to_hass.rb homeass myexport.knxproj > ha.yaml
-
-    DEBUG=debug ./ets_to_hass.rb homeass myexport.knxproj > ha.yaml
+```
+./ets_to_hass.rb homeass myexport.knxproj > ha.yaml
+DEBUG=debug ./ets_to_hass.rb homeass myexport.knxproj > ha.yaml
+```
 
 The special processing lambda is `default_custom.rb` if none is provided.
 It will generate basic Objects/Functions for group addresses not part of a function.
@@ -56,7 +76,7 @@ The generated result is displayed on terminal (STDOUT), so to store in a file, r
 
 Logs are sent to STDERR.
 
-## Structure in ETS
+## Internal logic
 
 The script takes the exported file from ETS with extension: `knxproj`.
 This file is a zip with several XML files in it.
@@ -64,43 +84,13 @@ The script parses the first project file found.
 It extracts group address information, as well as Building information.
 Make sure that the project file is not password protected.
 
-<p align="center"><img src="images/ets5.png" width="100%"/><br/>Fig. 1 ETS 5 with building</p>
+Once the project file has been parsed, an object of type: `ConfigurationImporter` is created.
+Then, The custom method is called.
 
-Building "functions" are used to gernerate H.A. objects.
-If the ETS project has no building information, then the script will create one object per group address.
-It is also possible to add this information using the third argument (script) which can add missing information, based, for example, on group address name.
-
-## Home Assistant
-
-In building information, "functions" are mapped to Home Assistant objects, such as dimmable lights, which group several group addresses.
-
-So, it is mandatory to create functions in order for the script to find objects.
-
-## Linknx
-
-`linknx` does not have an object concept, and needs only group addresses.
-
-## XKNX
-
-Support is dropped for the moment, until needed, but it is close enough to HA.
-
-## Special processing
-
-Once the project file has been parsed, an object of type: `ConfigurationImporter`.
-It's property `data` contains the project data and is structured like this:
+The property `data` of the object contains the project data and is structured like this:
 
 ```ruby
 {
-	ob:{
-		_obid_ => {
-			name:   "from ETS",
-			type:   "object type, see below",
-			floor:  "from ETS",
-			room:   "from ETS",
-			ga:     [list of _gaid_ included in this object],
-			custom: {custom values set by lambda: ha_init, ha_type}
-		},...
-	},
 	ga:{
 		_gaid_ => {
 			name:             "from ETS",
@@ -110,12 +100,36 @@ It's property `data` contains the project data and is structured like this:
 			objs:             [list of _obid_ using this group address],
 			custom:           {custom values set by lambda: ha_address_type, linknx_disp_name }                                            # 
 		},...
+	},
+	ob:{
+		_obid_ => {
+			name:   "from ETS",
+			type:   "object type, see below",
+			floor:  "from ETS",
+			room:   "from ETS",
+			ga:     [list of _gaid_ included in this object],
+			custom: {custom values set by lambda: ha_init, ha_type}
+		},...
 	}
 }
 ```
 
-* `_obid_` is the internal identifier of the function in ETS
-* `_gaid_` is the internal identifier of the group address in ETS
+`ga` contains all Group addresses, `_gaid_` is the internal identifier of the group address in ETS
+
+`ob` contains all ETS **Functions**, `_obid_` is the internal identifier of the function in ETS
+
+## Structure in ETS
+
+Building **functions** are used to gernerate H.A. devices.
+If the ETS project has no building information, then the script will create one device per group address.
+
+In the following screenshot, **Functions** are defined in a Building, in addition to group addresses.
+
+<p align="center"><img src="images/ets5.png" width="100%"/><br/>Fig. 1 ETS 5 with building</p>
+
+Moreover, if the functions are located properly in building levels and rooms, the script will read this information.
+
+When ETS **Functions** are found, the script will populate the `ob` Hash.
 
 **object type** are functions defined by ETS:
 
@@ -127,6 +141,12 @@ It's property `data` contains the project data and is structured like this:
 * `:heating_floor`
 * `:heating_switching_variable`
 * `:heating_continuous_variable`
+
+## Custom method
+
+If No building with **Functions** was created in the project, then the tool cannot guess which set of Group Addresses refer to the same H.A. device.
+
+It is possible to add this information using the third argument (script) which can add missing information, based, for example, on group address name.
 
 The optional post-processing function can modify the analyzed structure:
 
@@ -141,6 +161,17 @@ The optional post-processing function can modify the analyzed structure:
 The function can use any information such as fields of the object, or description or name of group address for that.
 
 The function is called with the `ConfigurationImporter` as argument, from which property `data` is used.
+
+Typically, the name of group addresses can be used if a specific naming convention was used.
+Or, if group addresses were defined using a specific convention: for example in a/b/c a is the type of action, b is the identifier of device...
+
+## Linknx
+
+`linknx` does not have an object concept, and needs only group addresses.
+
+## XKNX
+
+Support is dropped for the moment, until needed, but it is close enough to HA.
 
 ## Reporting issues
 
