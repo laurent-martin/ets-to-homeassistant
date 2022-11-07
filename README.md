@@ -12,7 +12,7 @@ A Ruby script to convert an ETS5 project file (`*.knxproj`) into:
 Actionable entities in KNX are "Group Addresses" (GA).
 For example a dimmable light has a group address for On/Off and another for the dimmig value.
 
-In Home Assistant, actionable entities are devices.
+In Home Assistant (HA), actionable entities are devices.
 For example, a dimmable light is a device and has properties, one of them is the group address for On/Off and another for the dimming value.
 
 By default, and in fact in a lot of ETS projects, only group addresses are defined as this is sufficient for an installation.
@@ -120,12 +120,12 @@ The property `data` of the object contains the project data and is structured li
 
 ## Structure in ETS
 
-Building **functions** are used to gernerate H.A. devices.
+Building **functions** are used to generate HA devices.
 If the ETS project has no building information, then the script will create one device per group address.
 
-In the following screenshot, **Functions** are defined in a Building, in addition to group addresses.
+In the following screenshot, note that both group addresses and building **Functions** are created.
 
-<p align="center"><img src="images/ets5.png" width="100%"/><br/>Fig. 1 ETS 5 with building</p>
+![ETS 5 with building functions](images/ets5.png)
 
 Moreover, if the functions are located properly in building levels and rooms, the script will read this information.
 
@@ -144,7 +144,7 @@ When ETS **Functions** are found, the script will populate the `ob` Hash.
 
 ## Custom method
 
-If No building with **Functions** was created in the project, then the tool cannot guess which set of Group Addresses refer to the same H.A. device.
+If No building with **Functions** was created in the project, then the tool cannot guess which set of Group Addresses refer to the same HA device.
 
 It is possible to add this information using the third argument (script) which can add missing information, based, for example, on group address name.
 
