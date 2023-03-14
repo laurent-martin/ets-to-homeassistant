@@ -22,7 +22,8 @@ class ConfigurationImporter
     TwoLevel: ->(a) { [(a >> 11) & 31, a & 2047].join('/') },
     ThreeLevel: ->(a) { [(a >> 11) & 31, (a >> 8) & 7, a & 255].join('/') }
   }.freeze
-  # from knx_master.xml in project file: index is from the FT-x identifier
+  # KNX functions described in knx_master.xml in project file.
+  # map index parsed from "FT-x" to recignizable identifier
   ETS_FUNCTIONS = %i[custom switchable_light dimmable_light sun_protection heating_radiator heating_floor
                      dimmable_light sun_protection heating_switching_variable heating_continuous_variable].freeze
   private_constant :ETS_EXT, :ETS_FUNCTIONS
@@ -30,7 +31,7 @@ class ConfigurationImporter
   attr_reader :data
 
   def initialize(file)
-    # parsed data
+    # parsed data: ob: objects, ga: group addresses
     @data = { ob: {}, ga: {} }
     # log to stderr, so that redirecting stdout captures only generated data
     @logger = Logger.new($stderr)
@@ -44,16 +45,15 @@ class ConfigurationImporter
     raise "Error: no such style #{group_addr_style} in #{GADDR_CONV.keys}" if @addrparser.nil?
 
     installation = self.class.dig_xml(project[:data], %w[Project Installations Installation])
-    # process group ranges
+    # process group ranges: fill @data[:ga]
     process_group_ranges(self.class.dig_xml(installation, %w[GroupAddresses GroupRanges]))
-    begin
-      process_space(self.class.dig_xml(installation, ['Locations']))
-    rescue
-      @logger.warn('No builing information')
-    end
+    # process group ranges: fill @data[:ob] (for 2 versions of ETS which have different tags?)
+    process_space(self.class.dig_xml(installation,['Locations']), 'Space') if installation.key?('Locations')
+    process_space(self.class.dig_xml(installation,['Buildings']), 'BuildingPart') if installation.key?('Buildings')
+    @logger.warn('No building information found.') if @data[:ob].keys.empty?
   end
 
-  # helper function to dig through keys, knowning that we used ForceArray
+  # helper function to dig through keys, knowing that we used ForceArray
   def self.dig_xml(entry_point, path)
     raise "ERROR: wrong entry point: #{entry_point.class}, expect Hash" unless entry_point.is_a?(Hash)
 
@@ -127,40 +127,42 @@ class ConfigurationImporter
   # process locations recursively, and find functions
   # @param space the current space
   # @param info current location information: floor, room
-  def process_space(space, info = nil)
+  def process_space(space, space_type, info = nil)
+    @logger.debug(">>#{space}")
     @logger.debug("#{space['Type']}: #{space['Name']}")
     info = info.nil? ? {} : info.dup
-    if space.key?('Space')
+    # process building sub spaces
+    if space.key?(space_type)
       # get floor when we have it
       info[:floor] = space['Name'] if space['Type'].eql?('Floor')
-      space['Space'].each { |s| process_space(s, info) }
+      space[space_type].each { |s| process_space(s, space_type, info) }
     end
     # Functions are objects
-    if space.key?('Function')
-      # we assume the object is directly in the room
-      info[:room] = space['Name']
-      # loop on group addresses
-      space['Function'].each do |f|
-        @logger.debug("function #{f}")
-        # ignore functions without group address
-        next unless f.key?('GroupAddressRef')
+    return unless space.key?('Function')
 
-        if m = f['Type'].match(/^FT-([0-9])$/)
-          type = ETS_FUNCTIONS[m[1].to_i]
-        else
-          raise "ERROR: Unknown function type: #{f['Type']}"
-        end
-        o = {
-          name: f['Name'].freeze,
-          type: type,
-          ga: f['GroupAddressRef'].map { |g| g['RefId'].freeze },
-          custom: {} # custom values
-        }.merge(info)
-        # store reference to this object in the GAs
-        o[:ga].each { |g| @data[:ga][g][:objs].push(f['Id']) if @data[:ga].key?(g) }
-        @logger.debug("function: #{o}")
-        @data[:ob][f['Id']] = o.freeze
-      end
+    # we assume the object is directly in the room
+    info[:room] = space['Name']
+    # loop on group addresses
+    space['Function'].each do |f|
+      @logger.debug("function #{f}")
+      # ignore functions without group address
+      next unless f.key?('GroupAddressRef')
+
+      m = f['Type'].match(/^FT-([0-9])$/)
+      raise "ERROR: Unknown function type: #{f['Type']}" if m.nil?
+
+      type = ETS_FUNCTIONS[m[1].to_i]
+
+      o = {
+        name: f['Name'].freeze,
+        type: type,
+        ga: f['GroupAddressRef'].map { |g| g['RefId'].freeze },
+        custom: {} # custom values
+      }.merge(info)
+      # store reference to this object in the GAs
+      o[:ga].each { |g| @data[:ga][g][:objs].push(f['Id']) if @data[:ga].key?(g) }
+      @logger.debug("function: #{o}")
+      @data[:ob][f['Id']] = o.freeze
     end
   end
 
@@ -178,6 +180,7 @@ class ConfigurationImporter
         if o[:custom].key?(:ha_type)
           o[:custom][:ha_type]
         else
+          # map FT-x type to home assistant type
           case o[:type]
           when :switchable_light, :dimmable_light then 'light'
           when :sun_protection then 'cover'
@@ -241,7 +244,8 @@ class ConfigurationImporter
   def generate_linknx
     @data[:ga].values.sort { |a, b| a[:address] <=> b[:address] }.map do |ga|
       linknx_disp_name = ga[:custom][:linknx_disp_name] || ga[:name]
-      %(        <object type="#{ga[:datapoint]}" id="id_#{ga[:address].gsub('/','_')}" gad="#{ga[:address]}" init="request">#{linknx_disp_name}</object>)
+      %(        <object type="#{ga[:datapoint]}" id="id_#{ga[:address].gsub('/',
+                                                                            '_')}" gad="#{ga[:address]}" init="request">#{linknx_disp_name}</object>)
     end.join("\n")
   end
 end
@@ -251,7 +255,7 @@ GENPREFIX = 'generate_'
 # get list of generation methods
 genformats = (ConfigurationImporter.instance_methods - ConfigurationImporter.superclass.instance_methods)
              .select { |m| m.to_s.start_with?(GENPREFIX) }
-             .map { |m| m[GENPREFIX.length..] }
+             .map { |m| m[GENPREFIX.length..-1] }
 # process command line args
 if (ARGV.length < 2) || (ARGV.length > 3)
   warn("Usage: #{$PROGRAM_NAME} [#{genformats.join('|')}] <etsprojectfile>.knxproj [custom lambda]")
@@ -267,6 +271,6 @@ raise "Error: no such output format: #{format}" unless genformats.include?(forma
 # read and parse ETS file
 knxconf = ConfigurationImporter.new(infile)
 # apply special code if provided
-eval(File.read(custom_lambda),binding,custom_lambda).call(knxconf) unless custom_lambda.nil?
+eval(File.read(custom_lambda), binding, custom_lambda).call(knxconf) unless custom_lambda.nil?
 # generate result
 $stdout.write(knxconf.send("#{GENPREFIX}#{format}".to_sym))
