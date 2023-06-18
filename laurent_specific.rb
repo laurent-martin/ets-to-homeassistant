@@ -39,7 +39,8 @@ lambda do |knxconf|
   # 2: set unique name when needed
   knx[:ob].each do |_k, o|
     # set name as room + function
-    o[:custom][:ha_init] = { 'name' => "#{o[:name]} #{o[:room]}" }
+    # o[:custom][:ha_init] = { 'name' => "#{o[:name]} #{o[:room]}" }
+    o[:custom][:ha_init] = {}
     # set my specific parameters
     if o[:type].eql?(:sun_protection)
       o[:custom][:ha_init].merge!({ 'travelling_time_down' => 59,
@@ -58,5 +59,5 @@ lambda do |knxconf|
     error = true
     warn("group not in object: #{ga[:address]}")
   end
-  raise 'Error found' if error
+  warn('Error found in custom code, see above') if error
 end

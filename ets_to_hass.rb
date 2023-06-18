@@ -8,14 +8,11 @@ require 'xmlsimple'
 require 'yaml'
 require 'json'
 require 'logger'
+require 'getoptlong'
 
 class ConfigurationImporter
   # extension of ETS project file
   ETS_EXT = '.knxproj'
-  # env var to set debug level
-  ENV_DEBUG = 'DEBUG'
-  # env var to change address style
-  ENV_GADDRSTYLE = 'GADDRSTYLE'
   # converters of group address integer address into representation
   GADDR_CONV = {
     Free: ->(a) { a.to_s },
@@ -23,22 +20,25 @@ class ConfigurationImporter
     ThreeLevel: ->(a) { [(a >> 11) & 31, (a >> 8) & 7, a & 255].join('/') }
   }.freeze
   # KNX functions described in knx_master.xml in project file.
-  # map index parsed from "FT-x" to recignizable identifier
+  # map index parsed from "FT-x" to recognizable identifier
   ETS_FUNCTIONS = %i[custom switchable_light dimmable_light sun_protection heating_radiator heating_floor
                      dimmable_light sun_protection heating_switching_variable heating_continuous_variable].freeze
   private_constant :ETS_EXT, :ETS_FUNCTIONS
 
   attr_reader :data
 
-  def initialize(file)
+  def initialize(file, options = {})
+    # set to true if the resulting yaml starts at the knx key
+    @opts = options
     # parsed data: ob: objects, ga: group addresses
     @data = { ob: {}, ga: {} }
     # log to stderr, so that redirecting stdout captures only generated data
     @logger = Logger.new($stderr)
-    @logger.level = ENV.key?(ENV_DEBUG) ? ENV[ENV_DEBUG] : Logger::INFO
+    @logger.level = @opts.key?(:trace) ? @opts[:trace] : Logger::INFO
+    @logger.debug("options: #{@opts}")
     project = read_file(file)
     proj_info = self.class.dig_xml(project[:info], %w[Project ProjectInformation])
-    group_addr_style = ENV.key?(ENV_GADDRSTYLE) ? ENV[ENV_GADDRSTYLE] : proj_info['GroupAddressStyle']
+    group_addr_style = @opts.key?(:addr) ? @opts[:addr] : proj_info['GroupAddressStyle']
     @logger.info("Using project #{proj_info['Name']}, address style: #{group_addr_style}")
     # set group address formatter according to project settings
     @addrparser = GADDR_CONV[group_addr_style.to_sym]
@@ -48,8 +48,8 @@ class ConfigurationImporter
     # process group ranges: fill @data[:ga]
     process_group_ranges(self.class.dig_xml(installation, %w[GroupAddresses GroupRanges]))
     # process group ranges: fill @data[:ob] (for 2 versions of ETS which have different tags?)
-    process_space(self.class.dig_xml(installation,['Locations']), 'Space') if installation.key?('Locations')
-    process_space(self.class.dig_xml(installation,['Buildings']), 'BuildingPart') if installation.key?('Buildings')
+    process_space(self.class.dig_xml(installation, ['Locations']), 'Space') if installation.key?('Locations')
+    process_space(self.class.dig_xml(installation, ['Buildings']), 'BuildingPart') if installation.key?('Buildings')
     @logger.warn('No building information found.') if @data[:ob].keys.empty?
   end
 
@@ -112,7 +112,7 @@ class ConfigurationImporter
       return
     end
     # parse datapoint for easier use
-    if m = ga['DatapointType'].match(/^DPST-([0-9]+)-([0-9]+)$/)
+    if (m = ga['DatapointType'].match(/^DPST-([0-9]+)-([0-9]+)$/))
       # datapoint type as string x.00y
       group[:datapoint] = format('%d.%03d', m[1].to_i, m[2].to_i) # no freeze
     else
@@ -128,8 +128,8 @@ class ConfigurationImporter
   # @param space the current space
   # @param info current location information: floor, room
   def process_space(space, space_type, info = nil)
-    @logger.debug(">>#{space}")
-    @logger.debug("#{space['Type']}: #{space['Name']}")
+    @logger.debug(">sname>#{space['Type']}: #{space['Name']}")
+    @logger.debug(">space>#{space}")
     info = info.nil? ? {} : info.dup
     # process building sub spaces
     if space.key?(space_type)
@@ -153,9 +153,10 @@ class ConfigurationImporter
 
       type = ETS_FUNCTIONS[m[1].to_i]
 
+      # the object
       o = {
         name: f['Name'].freeze,
-        type: type,
+        type:,
         ga: f['GroupAddressRef'].map { |g| g['RefId'].freeze },
         custom: {} # custom values
       }.merge(info)
@@ -174,7 +175,13 @@ class ConfigurationImporter
     end
     @data[:ob].each_value do |o|
       new_obj = o[:custom].key?(:ha_init) ? o[:custom][:ha_init] : {}
-      new_obj['name'] = o[:name] unless new_obj.key?('name')
+      unless new_obj.key?('name')
+        new_obj['name'] = if true && @opts[:full_name]
+                            "#{o[:name]} #{o[:room]}"
+                          else
+                            o[:name]
+                          end
+      end
       # compute object type
       ha_obj_type =
         if o[:custom].key?(:ha_type)
@@ -235,9 +242,15 @@ class ConfigurationImporter
         new_obj[ha_address_type] = ga[:address]
       end
       haknx[ha_obj_type] = [] unless haknx.key?(ha_obj_type)
+      # check name is not duplicated, as name is used to identify the object
+      if haknx[ha_obj_type].any? { |v| v['name'].casecmp?(new_obj['name']) }
+        @logger.warn("object name is duplicated: #{new_obj['name']}")
+      end
       haknx[ha_obj_type].push(new_obj)
     end
-    { 'knx' => haknx }.to_yaml
+    return { 'knx' => haknx }.to_yaml if @opts[:ha_knx]
+
+    haknx.to_yaml
   end
 
   # https://sourceforge.net/p/linknx/wiki/Object_Definition_section/
@@ -256,21 +269,74 @@ GENPREFIX = 'generate_'
 genformats = (ConfigurationImporter.instance_methods - ConfigurationImporter.superclass.instance_methods)
              .select { |m| m.to_s.start_with?(GENPREFIX) }
              .map { |m| m[GENPREFIX.length..-1] }
-# process command line args
-if (ARGV.length < 2) || (ARGV.length > 3)
-  warn("Usage: #{$PROGRAM_NAME} [#{genformats.join('|')}] <etsprojectfile>.knxproj [custom lambda]")
-  warn("env var #{ConfigurationImporter::ENV_DEBUG}: debug, info, warn, error")
-  warn("env var #{ConfigurationImporter::ENV_GADDRSTYLE}: #{ConfigurationImporter::GADDR_CONV.keys.map(&:to_s).join(', ')} to override value in project")
+
+opts = GetoptLong.new(
+  ['--help', '-h', GetoptLong::NO_ARGUMENT],
+  ['--format', '-f', GetoptLong::REQUIRED_ARGUMENT],
+  ['--ha-knx', '-k', GetoptLong::NO_ARGUMENT],
+  ['--full-name', '-n', GetoptLong::NO_ARGUMENT],
+  ['--lambda', '-l', GetoptLong::REQUIRED_ARGUMENT],
+  ['--trace', '-t', GetoptLong::REQUIRED_ARGUMENT]
+)
+
+options = {}
+
+custom_lambda = File.join(File.dirname(__FILE__), 'default_custom.rb')
+output_format = 'homeass'
+opts.each do |opt, arg|
+  case opt
+  when '--help'
+    puts <<-EOF
+            Usage: #{$PROGRAM_NAME} [--format format] [--lambda lambda] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <etsprojectfile>.knxproj
+
+            -h, --help:
+              show help
+
+            --format [format]:
+              one of #{genformats.join('|')}
+
+            --lambda [lambda]:
+              file with lambda
+
+            --addr [addr]:
+              one of #{ConfigurationImporter::GADDR_CONV.keys.map(&:to_s).join(', ')}
+
+            --trace [trace]:
+              one of debug, info, warn, error
+
+            --ha-knx:
+              include level knx in ouput file
+
+            --full-name:
+              add room name in object name
+    EOF
+    Process.exit(1)
+  when '--lambda'
+    custom_lambda = arg
+  when '--format'
+    output_format = arg
+    raise "Error: no such output format: #{output_format}" unless genformats.include?(output_format)
+  when '--ha-knx'
+    options[:ha_knx] = true
+  when '--full-name'
+    options[:full_name] = true
+  when '--trace'
+    options[:trace] = arg
+  else
+    raise "Unknown option #{opt}"
+  end
+end
+
+if ARGV.length != 1
+  puts 'Missing project file argument (try --help)'
   Process.exit(1)
 end
-format = ARGV.shift
+
 infile = ARGV.shift
-custom_lambda = ARGV.shift || File.join(File.dirname(__FILE__), 'default_custom.rb')
-raise "Error: no such output format: #{format}" unless genformats.include?(format)
 
 # read and parse ETS file
-knxconf = ConfigurationImporter.new(infile)
+knxconf = ConfigurationImporter.new(infile, options)
 # apply special code if provided
 eval(File.read(custom_lambda), binding, custom_lambda).call(knxconf) unless custom_lambda.nil?
 # generate result
-$stdout.write(knxconf.send("#{GENPREFIX}#{format}".to_sym))
+$stdout.write(knxconf.send("#{GENPREFIX}#{output_format}".to_sym))

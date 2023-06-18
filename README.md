@@ -20,8 +20,8 @@ So **there is no standard way** of collating several GA into devices usable by H
 
 This tool provides two ways in order to generate Home Assistant devices with related Group Addresses:
 
-- Either define **Functions** using the ETS software: refer to [Structure in ETS](#structure-in-ets)
-- Or create a custom Ruby function that is able to detect GAs that are part of the same device: refer to [Custom method](#custom-method)
+* Either define **Functions** using the ETS software: refer to [Structure in ETS](#structure-in-ets)
+* Or create a custom Ruby function that is able to detect GAs that are part of the same device: refer to [Custom method](#custom-method)
 
 ## Installation
 
@@ -54,19 +54,42 @@ Once Ruby is installed and this repo cloned, change directory to the main folder
 The general invokation syntax:
 
 ```bash
-./ets_to_hass.rb <homeass|linknx> <input file> [<special processing lambda file>]
+Usage: ./ets_to_hass.rb [--format format] [--lambda lambda] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <etsprojectfile>.knxproj
+
+-h, --help:
+	show help
+
+--format [format]:
+	one of homeass|linknx
+
+--lambda [lambda]:
+	file with lambda
+
+--addr [addr]:
+	one of Free, TwoLevel, ThreeLevel
+
+--trace [trace]:
+	one of debug, info, warn, error
+
+--ha-knx:
+	include level knx in ouput file
+
+--full-name:
+	add room name in object name
 ```
-
-Set env var `DEBUG` to one of: `debug`, `info`, `warn`, `error` (default is `info`)
-
-Set env var `GADDRSTYLE` to `Free`, `TwoLevel`, `ThreeLevel` to override project group address style.
-By default, the tool detects the style used in the project.
 
 For example to generate the home assistant KNX configuration from the exported ETS project: `myexport.knxproj`
 
+```bash
+./ets_to_hass.rb --format homeass myexport.knxproj > ha.yaml
+./ets_to_hass.rb --format homeass --trace debug myexport.knxproj > ha.yaml
 ```
-./ets_to_hass.rb homeass myexport.knxproj > ha.yaml
-DEBUG=debug ./ets_to_hass.rb homeass myexport.knxproj > ha.yaml
+
+Option `--ha-knx` adds the dictionary key `knx` in the generated Home Assistant configuration.
+Else, typically, include the generated entities in a separate file like this:
+
+```yaml
+knx: !include config_knx.yaml
 ```
 
 The special processing lambda is `default_custom.rb` if none is provided.
@@ -91,26 +114,26 @@ The property `data` of the object contains the project data and is structured li
 
 ```ruby
 {
-	ga:{
-		_gaid_ => {
-			name:             "from ETS",
-			description:      "from ETS",
-			address:          group address as string. e.g. "x/y/z" depending on project style,
-			datapoint:        datapoint type as string "x.00y",
-			objs:             [list of _obid_ using this group address],
-			custom:           {custom values set by lambda: ha_address_type, linknx_disp_name }                                            # 
-		},...
-	},
-	ob:{
-		_obid_ => {
-			name:   "from ETS",
-			type:   "object type, see below",
-			floor:  "from ETS",
-			room:   "from ETS",
-			ga:     [list of _gaid_ included in this object],
-			custom: {custom values set by lambda: ha_init, ha_type}
-		},...
-	}
+ ga:{
+  _gaid_ => {
+   name:             "from ETS",
+   description:      "from ETS",
+   address:          group address as string. e.g. "x/y/z" depending on project style,
+   datapoint:        datapoint type as string "x.00y",
+   objs:             [list of _obid_ using this group address],
+   custom:           {custom values set by lambda: ha_address_type, linknx_disp_name }                                            # 
+  },...
+ },
+ ob:{
+  _obid_ => {
+   name:   "from ETS",
+   type:   "object type, see below",
+   floor:  "from ETS",
+   room:   "from ETS",
+   ga:     [list of _gaid_ included in this object],
+   custom: {custom values set by lambda: ha_init, ha_type}
+  },...
+ }
 }
 ```
 

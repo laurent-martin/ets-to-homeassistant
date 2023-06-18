@@ -6,8 +6,8 @@ LK_EXT=.linknx.xml
 XK_EXT=.xknx.yaml
 TESTFILES=sample
 all::
-	./ets_to_hass.rb homeass "$(ETS_FILE)" $(SPECIAL) > "$$(basename "$(ETS_FILE)" $(ETS_EXT))$(HA_EXT)"
-	./ets_to_hass.rb linknx  "$(ETS_FILE)" $(SPECIAL) > "$$(basename "$(ETS_FILE)" $(ETS_EXT))$(LK_EXT)"
+	./ets_to_hass.rb --format homeass --lambda $(SPECIAL) --full-name "$(ETS_FILE)" > "$$(basename "$(ETS_FILE)" $(ETS_EXT))$(HA_EXT)"
+	./ets_to_hass.rb --format linknx  --lambda $(SPECIAL) "$(ETS_FILE)" > "$$(basename "$(ETS_FILE)" $(ETS_EXT))$(LK_EXT)"
 clean:
 	rm -f *$(HA_EXT) *$(LK_EXT) *$(XK_EXT)
 test:
