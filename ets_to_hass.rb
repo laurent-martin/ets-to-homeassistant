@@ -3,12 +3,18 @@
 
 # Laurent Martin
 # translate configuration from ETS into KNXWeb and Home Assistant
-require 'zip'
-require 'xmlsimple'
-require 'yaml'
-require 'json'
-require 'logger'
-require 'getoptlong'
+begin
+  require 'zip'
+  require 'xmlsimple'
+  require 'getoptlong'
+  require 'yaml'
+  require 'json'
+  require 'logger'
+rescue LoadError => e
+  puts(e.backtrace.join("\n"))
+  puts("Missing gems: read the manual: execute:\n\e[5mgem install bundler\nbundle install\e[0m")
+  exit(1)
+end
 
 class ConfigurationImporter
   # extension of ETS project file
@@ -264,11 +270,11 @@ class ConfigurationImporter
 end
 
 # prefix of generation methods
-GENPREFIX = 'generate_'
+GENE_PREFIX = 'generate_'
 # get list of generation methods
-genformats = (ConfigurationImporter.instance_methods - ConfigurationImporter.superclass.instance_methods)
-             .select { |m| m.to_s.start_with?(GENPREFIX) }
-             .map { |m| m[GENPREFIX.length..-1] }
+gene_formats = (ConfigurationImporter.instance_methods - ConfigurationImporter.superclass.instance_methods)
+             .select { |m| m.to_s.start_with?(GENE_PREFIX) }
+             .map { |m| m[GENE_PREFIX.length..-1] }
 
 opts = GetoptLong.new(
   ['--help', '-h', GetoptLong::NO_ARGUMENT],
@@ -293,7 +299,7 @@ opts.each do |opt, arg|
               show help
 
             --format [format]:
-              one of #{genformats.join('|')}
+              one of #{gene_formats.join('|')}
 
             --lambda [lambda]:
               file with lambda
@@ -315,7 +321,7 @@ opts.each do |opt, arg|
     custom_lambda = arg
   when '--format'
     output_format = arg
-    raise "Error: no such output format: #{output_format}" unless genformats.include?(output_format)
+    raise "Error: no such output format: #{output_format}" unless gene_formats.include?(output_format)
   when '--ha-knx'
     options[:ha_knx] = true
   when '--full-name'
@@ -335,8 +341,8 @@ end
 infile = ARGV.shift
 
 # read and parse ETS file
-knxconf = ConfigurationImporter.new(infile, options)
+knx_config = ConfigurationImporter.new(infile, options)
 # apply special code if provided
-eval(File.read(custom_lambda), binding, custom_lambda).call(knxconf) unless custom_lambda.nil?
+eval(File.read(custom_lambda), binding, custom_lambda).call(knx_config) unless custom_lambda.nil?
 # generate result
-$stdout.write(knxconf.send("#{GENPREFIX}#{output_format}".to_sym))
+$stdout.write(knx_config.send("#{GENE_PREFIX}#{output_format}".to_sym))

@@ -10,7 +10,7 @@ A Ruby script to convert an ETS5 project file (`*.knxproj`) into:
 ## Important note
 
 Actionable entities in KNX are "Group Addresses" (GA).
-For example a dimmable light has a group address for On/Off and another for the dimmig value.
+For example a dimmable light has a group address for On/Off and another for the dimming value.
 
 In Home Assistant (HA), actionable entities are devices.
 For example, a dimmable light is a device and has properties, one of them is the group address for On/Off and another for the dimming value.
@@ -51,7 +51,7 @@ bundle install
 
 Once Ruby is installed and this repo cloned, change directory to the main folder and execute `./ets_to_hass.rb`:
 
-The general invokation syntax:
+The general invocation syntax:
 
 ```bash
 Usage: ./ets_to_hass.rb [--format format] [--lambda lambda] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <etsprojectfile>.knxproj

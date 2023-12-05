@@ -1,0 +1,68 @@
+{
+  "version": "0.2",
+  "ignorePaths": [
+    "*.dict",
+    ".cspell.json"
+  ],
+  "dictionaryDefinitions": [],
+  "useGitignore": true,
+  "dictionaries": [
+    "technical",
+    "shell"
+  ],
+  "words": [],
+  "ignoreWords": [],
+  "import": [],
+  "enableFiletypes": [
+    "makefile",
+    "markdown",
+    "shellscript"
+  ],
+  "patterns": [
+    {
+      "name": "markdown_code_block",
+      "pattern": "/^\\s*```(.|\\n)+?^\\s*```/gm"
+    },
+    {
+      "name": "markdown_code_inline",
+      "pattern": "/`.*?`/g"
+    },
+    {
+      "name": "quoted_special_words",
+      "pattern": "/\".*?\"/g"
+    },
+    {
+      "name": "embedded_ruby_code_block",
+      "pattern": "/<%[^%]*%>/g"
+    },
+    {
+      "name": "makefile_only_comments",
+      "pattern": "/^[^#]/"
+    }
+  ],
+  "languageSettings": [
+    {
+      "languageId": "markdown",
+      "ignoreRegExpList": [
+        "markdown_code_block",
+        "markdown_code_inline",
+        "quoted_special_words",
+        "embedded_ruby_code_block"
+      ]
+    },
+    {
+      "languageId": "makefile",
+      "ignoreRegExpList": [
+        "makefile_only_comments"
+      ]
+    }
+  ],
+  "overrides": [
+    {
+      "filename": "**/Makefile",
+      "languageId": "cpp",
+      "enabled": true
+      // Add any other specific configurations for Makefiles
+    }
+  ]
+}
