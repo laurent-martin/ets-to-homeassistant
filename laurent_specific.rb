@@ -45,9 +45,9 @@ lambda do |knx_config|
   knx[:ob].each do |_unused_id, object|
     # set name as room + function
     # object[:custom][:ha_init] = { 'name' => "#{object[:name]} #{object[:room]}" }
-    object[:custom][:ha_init] = {}
     # set my specific parameters
     if object[:type].eql?(:sun_protection)
+      object[:custom][:ha_init] ||= {}
       object[:custom][:ha_init].merge!({ 'travelling_time_down' => 59,
                                          'travelling_time_up' => 59 })
     end

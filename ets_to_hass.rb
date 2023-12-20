@@ -85,9 +85,10 @@ class ConfigurationImporter
   }.freeze
   # KNX functions described in knx_master.xml in project file.
   # map index parsed from "FT-x" to recognizable identifier
-  ETS_FUNCTIONS = %i[custom switchable_light dimmable_light sun_protection heating_radiator heating_floor
-                     dimmable_light sun_protection heating_switching_variable heating_continuous_variable].freeze
-  private_constant :ETS_EXT, :ETS_FUNCTIONS
+  ETS_FUNCTIONS_INDEX_TO_NAME =
+  %i[custom switchable_light dimmable_light sun_protection heating_radiator heating_floor
+     dimmable_light sun_protection heating_switching_variable heating_continuous_variable].freeze
+  private_constant :ETS_EXT, :ETS_FUNCTIONS_INDEX_TO_NAME
 
   attr_reader :data
 
@@ -136,7 +137,7 @@ class ConfigurationImporter
     m = ft_type.match(/^FT-([0-9])$/)
     raise "ERROR: Unknown function type: #{ft_type}" if m.nil?
 
-    ETS_FUNCTIONS[m[1].to_i]
+    ETS_FUNCTIONS_INDEX_TO_NAME[m[1].to_i]
   end
 
   def warning(entity, name, message)
@@ -238,6 +239,47 @@ class ConfigurationImporter
     end
   end
 
+  # map ETS function to home assistant object type
+  # see https://www.home-assistant.io/integrations/knx/
+  def map_ets_function_to_ha_type(_ets_function)
+    # map FT-x type to home assistant type
+    case o[:type]
+    when :switchable_light, :dimmable_light then 'light'
+    when :sun_protection then 'cover'
+    when :custom, :heating_continuous_variable, :heating_floor, :heating_radiator, :heating_switching_variable
+      @logger.warn("#{o[:room].red} #{o[:name].green} function type #{o[:type].to_s.blue} not implemented")
+      nil
+    else @logger.error("#{o[:room].red} #{o[:name].green} function type #{o[:type].to_s.blue} not supported, please report")
+         nil
+    end
+  end
+
+  # map datapoint to home assistant type
+  # see https://www.home-assistant.io/integrations/knx/
+  def map_ets_datapoint_to_ha_type(ga, ha_obj_type)
+    case ga[:datapoint]
+    when '1.001' then 'address' # switch on/off or state
+    when '1.008' then 'move_long_address' # up/down
+    when '1.010' then 'stop_address' # stop
+    when '1.011' then 'state_address' # switch state
+    when '3.007'
+      @logger.debug("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): ignoring datapoint")
+      nil # dimming control: used by buttons
+    when '5.001' # percentage 0-100
+      # custom code tells what is state
+      case ha_obj_type
+      when 'light' then 'brightness_address'
+      when 'cover' then 'position_address'
+      else
+        warning(ga[:address], ga[:name], "#{ga[:datapoint]} expects: light or cover, not #{ha_obj_type.magenta}")
+        nil
+      end
+    else
+      warning(ga[:address], ga[:name], "un-managed datapoint #{ga[:datapoint].blue} (#{ha_obj_type.magenta})")
+      nil
+    end
+  end
+
   def generate_homeass
     ha_config = {}
     # warn of group addresses that will not be used (you can fix in custom lambda)
@@ -245,81 +287,45 @@ class ConfigurationImporter
       warning(ga[:address], ga[:name],
               'Group not in object: use ETS to create functions or create custom object in lambda')
     end
+    # Generate only known objects
     @data[:ob].each_value do |o|
-      new_obj = o[:custom].key?(:ha_init) ? o[:custom][:ha_init] : {}
-      unless new_obj.key?('name')
-        new_obj['name'] =
-        if true && @opts[:full_name]
-          "#{o[:name]} #{o[:room]}"
-        else
-          o[:name]
-        end
+      # HA configuration object, either empty or from custom lambda
+      ha_device = o[:custom].key?(:ha_init) ? o[:custom][:ha_init] : {}
+      # default name
+      ha_device['name'] = @opts[:full_name] ? "#{o[:name]} #{o[:room]}" : o[:name] unless ha_device.key?('name')
+      # compute object type, this is the section in HA configuration (switch, light, etc...)
+      ha_obj_type = o[:custom][:ha_type] || map_ets_function_to_ha_type(o)
+      if ha_obj_type.nil?
+        warning(o[:name], o[:room], "function type not detected #{o[:type].blue}")
+        next
       end
-      # compute object type
-      ha_obj_type =
-        if o[:custom].key?(:ha_type)
-          o[:custom][:ha_type]
-        else
-          # map FT-x type to home assistant type
-          case o[:type]
-          when :switchable_light, :dimmable_light then 'light'
-          when :sun_protection then 'cover'
-          when :custom, :heating_continuous_variable, :heating_floor, :heating_radiator, :heating_switching_variable
-            @logger.warn("#{o[:room].red} #{o[:name].green} function type #{o[:type].to_s.blue} not implemented")
-            next
-          else @logger.error("#{o[:room].red} #{o[:name].green} function type #{o[:type].to_s.blue} not supported, please report")
-               next
-          end
-        end
       # process all group addresses in function
       o[:ga].each do |group_address_reference|
+        # get this group information
         ga = @data[:ga][group_address_reference]
-        next if ga.nil?
-
+        if ga.nil?
+          @logger.error("#{o[:name].red} #{o[:room].green} (#{o[:type].magenta}) group address #{group_address_reference} not found, skipping")
+          next
+        end
         # find property name based on datapoint
-        ha_address_type =
-          if ga[:custom].key?(:ha_address_type)
-            ga[:custom][:ha_address_type]
-          else
-            case ga[:datapoint]
-            when '1.001' then 'address' # switch on/off or state
-            when '1.008' then 'move_long_address' # up/down
-            when '1.010' then 'stop_address' # stop
-            when '1.011' then 'state_address' # switch state
-            when '3.007'
-              @logger.debug("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): ignoring datapoint")
-
-              next # dimming control: used by buttons
-            when '5.001' # percentage 0-100
-              # custom code tells what is state
-              case ha_obj_type
-              when 'light' then 'brightness_address'
-              when 'cover' then 'position_address'
-              else warning(ga[:address], ga[:name],
-                           "#{ga[:datapoint]} expects: light or cover, not #{ha_obj_type.magenta}")
-                   next
-              end
-            else
-              warning(ga[:address], ga[:name], "unmanaged datapoint #{ga[:datapoint].blue} (#{ha_obj_type.magenta})")
-              next
-            end
-          end
+        ha_address_type = ga[:custom][:ha_address_type] || map_ets_datapoint_to_ha_type(ga, ha_obj_type)
         if ha_address_type.nil?
-          warning(ga[:address], ga[:name], "address type not detected #{ga[:datapoint].blue} / #{ha_obj_type.magenta}")
+          warning(ga[:address], ga[:name],
+                  "address type not detected #{ga[:datapoint].blue} / #{ha_obj_type.magenta}, skipping")
           next
         end
-        if new_obj.key?(ha_address_type)
-          @logger.error("#{ga[:address].red} #{ga[:name].green} (#{ha_obj_type.magenta}:#{ga[:datapoint]}) ignoring for #{ha_address_type} already set with #{new_obj[ha_address_type]}")
+        if ha_device.key?(ha_address_type)
+          @logger.error("#{ga[:address].red} #{ga[:name].green} (#{ha_obj_type.magenta}:#{ga[:datapoint]}) #{ha_address_type} already set with #{ha_device[ha_address_type]}, skipping")
           next
         end
-        new_obj[ha_address_type] = ga[:address]
+        ha_device[ha_address_type] = ga[:address]
       end
       ha_config[ha_obj_type] = [] unless ha_config.key?(ha_obj_type)
       # check name is not duplicated, as name is used to identify the object
-      if ha_config[ha_obj_type].any? { |v| v['name'].casecmp?(new_obj['name']) }
-        @logger.warn("#{new_obj['name'].red} object name is duplicated")
+      if ha_config[ha_obj_type].any? { |v| v['name'].casecmp?(ha_device['name']) }
+        @logger.warn("#{ha_device['name'].red} object name is duplicated")
       end
-      ha_config[ha_obj_type].push(new_obj)
+      ha_config[ha_obj_type].push(ha_device)
     end
     return { 'knx' => ha_config }.to_yaml if @opts[:ha_knx]
 

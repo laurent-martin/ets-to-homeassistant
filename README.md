@@ -7,21 +7,30 @@ A Ruby tool to convert an ETS5 project file (`*.knxproj`) into:
 
 [https://www.home-assistant.io/integrations/knx/](https://www.home-assistant.io/integrations/knx/)
 
+## Glossary
+
+**KNX Group Address**: a group address is a 1, 2 or 3-level address in the KNX system, e.g. `1/2/3.
+**KNX Data Point Type**: a data point type is a type of data that can be sent on a group address, e.g. **1.001**, **5.001**.
+**ETS Building Information**: In ETS, a building is a container for rooms and **ETS Function**.
+**ETS Function** : In ETS, represents an object that has several **KNX Group Address** associated to it.
+**HA Device** : In Home Assistant, a device has a type (e.g.`light`) and has **HA Config Variable**.
+**HA Config Variable** : In Home Assistant, it's a property of a device, e.g.`name`,`address`,`state_address`.
+
 ## Important note
 
 In order for the tool to generate result properly read the following.
 
-Actionable entities in KNX are **Group Addresses** (GA).
+An actionable entity in KNX is a **KNX Group Address**: commands are exchanged in a group address on the KNX Bus.
 For example a dimmable light has at least one group address for On/Off and another for the dimming value.
 
-Actionable entities in **Home Assistant** (HA) are devices.
+Actionable entities in **Home Assistant** are **HA Device**.
 For example, a dimmable light is a device and has properties, one of them is the group address for On/Off and another is the group address for the dimming value.
 
 So, for the tool to work, the following pieces of information must be found:
 
-* Group addresses
-* Type of group address (On/Off, dimming value, etc.)
-* Grouping of group addresses into devices
+* **KNX Group Address**
+* **KNX Data Point Type** for each **KNX Group Address**
+* Grouping of group addresses into devices : **ETS Function** in ETS mapped to **HA Device** in Home Assistant
 
 By default, and in fact in a lot of ETS projects, only group addresses are defined as this is sufficient for an installation.
 I.e. no functions are defined, and data point types are not defined for group addresses.
@@ -30,10 +39,10 @@ The next 2 sections explain how to fix this.
 
 ### Group address: Type
 
-Group addresses are defined in the ETS project file naturally, as it is the base for the system to work.
+**KNX Group Address**es are defined in the ETS project file naturally, as it is the base for the system to work.
 But we need the types of them (e.g. **on/off** versus **dim value**) in order to create the HA configuration.
 
-The best, easiest and more reliable way for the tool to find the **data point type** is to specify the **data point type** in the group address itself.
+The best, easiest and most reliable way for the tool to find the **KNX Data Point Type** is to specify the **KNX Data Point Type** in the group address itself in ETS.
 This requires editing the KNX project.
 Refer to [Structure in ETS](#structure-in-ets).
 
@@ -42,8 +51,8 @@ Refer to [Custom method](#custom-method)
 
 ### Group address: Grouping into devices
 
-The second part is to group **group addresses** into devices.
-This is best done by creating **Functions** in ETS.
+The second part is to regroup **KNX Group Address**es into **HA Device**.
+This is best done by creating **ETS Function** in ETS.
 Refer to [Structure in ETS](#structure-in-ets).
 
 Another possibility is to create a custom script.
@@ -73,11 +82,13 @@ gem install bundler
 bundle install
 ```
 
+> **Note:** On windows make sure that the file `Gemfile` is not renamed `Gemfile.txt`
+
 ## Usage
 
 Once Ruby is installed and this repo cloned, change directory to the main folder and execute `./ets_to_hass.rb`:
 
-The general invocation syntax:
+General invocation syntax:
 
 ```bash
 Usage: ./ets_to_hass.rb [--format format] [--lambda lambda] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <etsprojectfile>.knxproj
@@ -107,11 +118,10 @@ Usage: ./ets_to_hass.rb [--format format] [--lambda lambda] [--addr addr] [--tra
 For example to generate the home assistant KNX configuration from the exported ETS project: `myexport.knxproj`
 
 ```bash
-./ets_to_hass.rb --format homeass myexport.knxproj > ha.yaml
-./ets_to_hass.rb --format homeass --trace debug myexport.knxproj > ha.yaml
+./ets_to_hass.rb --format homeass --full-name myexport.knxproj > ha.yaml
 ```
 
-Option `--ha-knx` adds the dictionary key `knx` in the generated Home Assistant configuration.
+Option `--ha-knx` adds the dictionary key `knx` in the generated Home Assistant configuration so that it can be copy/paste in `configuration.yaml`.
 Else, typically, include the generated entities in a separate file like this:
 
 ```yaml
@@ -129,14 +139,17 @@ Logs are sent to STDERR.
 
 The tool takes the exported file from ETS with extension: `knxproj`.
 The project file is a zip with several XML files in it.
-The tool parses the first project file found.
-It extracts group address information, as well as Building information.
 Make sure that the project file is not password protected.
 
-Once the project file has been parsed, an object of type: `ConfigurationImporter` is created.
-Then, the custom method is called.
+* The tool parses the first project file found.
+* It extracts **ETS Building Information** and **KNX Group Address**es.
+* A Ruby object of type: `ConfigurationImporter` is created.
 
-The property `data` of the object contains the project data and is structured like this:
+  The property `data` of the object contains the project data and is structured like this:
+
+  `ga` contains all **KNX Group Address**es, `_gaid_` is the internal identifier of the **KNX Group Address** in ETS
+
+  `ob` contains all **ETS Function**, `_obid_` is the internal identifier of the **ETS Function** in ETS
 
 ```ruby
 {
@@ -145,15 +158,15 @@ The property `data` of the object contains the project data and is structured li
    name:             "from ETS",
    description:      "from ETS",
    address:          group address as string. e.g. "x/y/z" depending on project style,
-   datapoint:        datapoint type as string "x.00y",
+   datapoint:        datapoint type as string "x.abc", e.g. 1.001,
    objs:             [list of _obid_ using this group address],
    custom:           {custom values set by lambda: ha_address_type, linknx_disp_name }                                            # 
   },...
  },
  ob:{
   _obid_ => {
-   name:   "from ETS",
-   type:   "object type, see below",
+   name:   "from ETS, either function name or full name with room if option --full-name is used",
+   type:   "ETS function type, see below",
    floor:  "from ETS",
    room:   "from ETS",
    ga:     [list of _gaid_ included in this object],
@@ -163,29 +176,29 @@ The property `data` of the object contains the project data and is structured li
 }
 ```
 
-`ga` contains all Group addresses, `_gaid_` is the internal identifier of the group address in ETS
+* the custom lambda is called giving an opportunity to modify this structure
 
-`ob` contains all ETS **Functions**, `_obid_` is the internal identifier of the function in ETS
+* Eventually, the HA configuration is generated
 
 ## Structure in ETS
 
-Group Address types are used to findout HA device properties.
-For each group address make sure to define the type as in the following screenshot:
+The **KNX Data Point Type** of **KNX Group Address** is used to find out the associated **HA Config Variable**.
+In ETS, for each **KNX Group Address**, make sure to define the **KNX Data Point Type** as in the following screenshot:
 
 ![datapoint in group address](images/ets5_datapoint.png)
 
-Building **Functions** are used to generate HA devices.
-If the ETS project has no building information, then the tool will create one device per group address.
+**ETS Building Information** and **ETS Function** are used to generate HA devices.
+If the ETS project has no **ETS Building Information**, then the tool will create one **HA Device** per **KNX Group Address**.
 
-In the following screenshot, note that both group addresses and building **Functions** are created.
+In the following screenshot, note that both **KNX Group Address** and **ETS Function** are created.
 
 ![ETS 5 with building functions](images/ets5.png)
 
-Moreover, if the functions are located properly in building levels and rooms, the tool will read this information.
+Moreover, if **ETS Function** are located properly in **ETS Building Information** levels and rooms, the tool will read this information.
 
-When ETS **Functions** are found, the tool will populate the `ob` Hash.
+When **ETS Function** are found, the tool will populate the `ob` `Hash`.
 
-**object type** are functions defined by ETS:
+The type of **ETS Function** is identified by a name:
 
 * `:custom`
 * `:switchable_light`
@@ -198,25 +211,27 @@ When ETS **Functions** are found, the tool will populate the `ob` Hash.
 
 ## Custom method
 
-If the type of group address is not defined in the ETS project, then the tool cannot guess which group address is e.g. for On/Off, or for dimming value.
+If the **KNX Data Point Type** of a **KNX Group Address** is not defined in the ETS project, then the tool cannot guess which group address is e.g. for On/Off, or for dimming value.
 
-If no building with **Functions** was created in the project, then the tool cannot guess which set of Group Addresses refer to the same HA device.
+If no **ETS Building Information** with **ETS Function** was created in the project, then the tool cannot guess which set of **KNX Group Address** refer to the same **HA Device**.
 
-It is possible to add this information using the third argument (custom script) which can add missing information, based, for example, on group address name.
+It is possible to add this information using the third argument (custom script) which can add missing information, based, for example, on the name of the **KNX Group Address**.
 
 For example, I used to use a naming convention like: `<room>:<object>:<type>` before using ETS features, and the custom script could guess the missing data type from `<type>`, and then group addresses into devices based on `<room>` and `<object>`.
 
-But if the convention is to place `ON/OFF` in `1/x/x` then you can use this to guess the type of group address.
+But if the convention is to place `ON/OFF` in `1/x/x` then you can use the first address identifier to guess the type of **KNX Group Address**.
 
 The optional post-processing function can modify the analyzed structure:
 
 * It can delete objects, or create objects.
 * It can add fields in the `:custom` properties:
 
-  * `ha_init` : initialize the HA object with some values
-  * `ha_type` : force the entity type in HA
-  * `ha_address_type` : define the use for the group address
-  * `linknx_disp_name` : set the description of group address in `linknx`
+  * in `ga`:
+    * `ha_address_type` : define the use for the group address
+    * `linknx_disp_name` : set the description of group address in `linknx`
+  * in `ob`:
+    * `ha_type` : force the entity type in HA (switch, light, etc.)
+    * `ha_init` : initialize the HA object with some values
 
 The function can use any information such as fields of the object, or description or name of group address for that.
 
@@ -236,3 +251,7 @@ Support is dropped for the moment, until needed, but it is close enough to HA.
 ## Reporting issues
 
 Include the version of ETS used and logs.
+
+## TODO
+
+One possibility would be to add extra information in the description of the group address and/or function in ETS, and then parse it in the tool.
