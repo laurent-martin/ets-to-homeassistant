@@ -241,7 +241,7 @@ class ConfigurationImporter
 
   # map ETS function to home assistant object type
   # see https://www.home-assistant.io/integrations/knx/
-  def map_ets_function_to_ha_type(_ets_function)
+  def map_ets_function_to_ha_type(o)
     # map FT-x type to home assistant type
     case o[:type]
     when :switchable_light, :dimmable_light then 'light'
