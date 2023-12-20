@@ -16,11 +16,12 @@ rescue LoadError => e
   exit(1)
 end
 
+# Import ETS project file and generate configuration for Home Assistant and KNXWeb
 class ConfigurationImporter
   # extension of ETS project file
   ETS_EXT = '.knxproj'
   # converters of group address integer address into representation
-  GADDR_CONV = {
+  GROUP_ADDRESS_PARSERS = {
     Free: ->(a) { a.to_s },
     TwoLevel: ->(a) { [(a >> 11) & 31, a & 2047].join('/') },
     ThreeLevel: ->(a) { [(a >> 11) & 31, (a >> 8) & 7, a & 255].join('/') }
@@ -47,8 +48,8 @@ class ConfigurationImporter
     group_addr_style = @opts.key?(:addr) ? @opts[:addr] : proj_info['GroupAddressStyle']
     @logger.info("Using project #{proj_info['Name']}, address style: #{group_addr_style}")
     # set group address formatter according to project settings
-    @addrparser = GADDR_CONV[group_addr_style.to_sym]
-    raise "Error: no such style #{group_addr_style} in #{GADDR_CONV.keys}" if @addrparser.nil?
+    @group_address_parser = GROUP_ADDRESS_PARSERS[group_addr_style.to_sym]
+    raise "Error: no such style #{group_addr_style} in #{GROUP_ADDRESS_PARSERS.keys}" if @group_address_parser.nil?
 
     installation = self.class.dig_xml(project[:data], %w[Project Installations Installation])
     # process group ranges: fill @data[:ga]
@@ -72,6 +73,13 @@ class ConfigurationImporter
       raise "ERROR: expect array with one element in #{n}" if entry_point.nil?
     end
     entry_point
+  end
+
+  def self.function_type_to_name(ft_type)
+    m = ft_type.match(/^FT-([0-9])$/)
+    raise "ERROR: Unknown function type: #{ft_type}" if m.nil?
+
+    ETS_FUNCTIONS[m[1].to_i]
   end
 
   # Read both project.xml and 0.xml
@@ -108,7 +116,7 @@ class ConfigurationImporter
     group = {
       name: ga['Name'].freeze, # ETS: name field
       description: ga['Description'].freeze, # ETS: description field
-      address: @addrparser.call(ga['Address'].to_i).freeze, # group address as string. e.g. "x/y/z" depending on project style
+      address: @group_address_parser.call(ga['Address'].to_i).freeze, # group address as string. e.g. "x/y/z" depending on project style
       datapoint: nil, # datapoint type as string "x.00y"
       objs: [], # objects ids, it may be in multiple objects
       custom: {} # modified by lambda
@@ -154,15 +162,10 @@ class ConfigurationImporter
       # ignore functions without group address
       next unless f.key?('GroupAddressRef')
 
-      m = f['Type'].match(/^FT-([0-9])$/)
-      raise "ERROR: Unknown function type: #{f['Type']}" if m.nil?
-
-      type = ETS_FUNCTIONS[m[1].to_i]
-
       # the object
       o = {
         name: f['Name'].freeze,
-        type:,
+        type: self.class.function_type_to_name(f['Type']),
         ga: f['GroupAddressRef'].map { |g| g['RefId'].freeze },
         custom: {} # custom values
       }.merge(info)
@@ -182,11 +185,12 @@ class ConfigurationImporter
     @data[:ob].each_value do |o|
       new_obj = o[:custom].key?(:ha_init) ? o[:custom][:ha_init] : {}
       unless new_obj.key?('name')
-        new_obj['name'] = if true && @opts[:full_name]
-                            "#{o[:name]} #{o[:room]}"
-                          else
-                            o[:name]
-                          end
+        new_obj['name'] =
+        if true && @opts[:full_name]
+          "#{o[:name]} #{o[:room]}"
+        else
+          o[:name]
+        end
       end
       # compute object type
       ha_obj_type =
@@ -273,8 +277,8 @@ end
 GENE_PREFIX = 'generate_'
 # get list of generation methods
 gene_formats = (ConfigurationImporter.instance_methods - ConfigurationImporter.superclass.instance_methods)
-             .select { |m| m.to_s.start_with?(GENE_PREFIX) }
-             .map { |m| m[GENE_PREFIX.length..-1] }
+               .select { |m| m.to_s.start_with?(GENE_PREFIX) }
+               .map { |m| m[GENE_PREFIX.length..-1] }
 
 opts = GetoptLong.new(
   ['--help', '-h', GetoptLong::NO_ARGUMENT],
@@ -305,7 +309,7 @@ opts.each do |opt, arg|
               file with lambda
 
             --addr [addr]:
-              one of #{ConfigurationImporter::GADDR_CONV.keys.map(&:to_s).join(', ')}
+              one of #{ConfigurationImporter::GROUP_ADDRESS_PARSERS.keys.map(&:to_s).join(', ')}
 
             --trace [trace]:
               one of debug, info, warn, error
