@@ -304,7 +304,7 @@ class ConfigurationImporter
         # get this group information
         ga = @data[:ga][group_address_reference]
         if ga.nil?
-          @logger.error("#{o[:name].red} #{o[:room].green} (#{o[:type].magenta}) group address #{group_address_reference} not found, skipping")
+          @logger.error("#{o[:name].red} #{o[:room].green} (#{o[:type].to_s.magenta}) group address #{group_address_reference} not found, skipping")
           next
         end
         # find property name based on datapoint
