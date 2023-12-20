@@ -206,6 +206,8 @@ It is possible to add this information using the third argument (custom script) 
 
 For example, I used to use a naming convention like: `<room>:<object>:<type>` before using ETS features, and the custom script could guess the missing data type from `<type>`, and then group addresses into devices based on `<room>` and `<object>`.
 
+But if the convention is to place `ON/OFF` in `1/x/x` then you can use this to guess the type of group address.
+
 The optional post-processing function can modify the analyzed structure:
 
 * It can delete objects, or create objects.
