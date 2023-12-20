@@ -1,8 +1,64 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+# cspell:ignore xmlsimple getoptlong knxproj datapoint dpst
+
 # Laurent Martin
 # translate configuration from ETS into KNXWeb and Home Assistant
+
+# Add colors
+class String
+  class << self
+    private
+
+    def vt_cmd(code) = "\e[#{code}m"
+  end
+  # see https://en.wikipedia.org/wiki/ANSI_escape_code
+  # symbol is the method name added to String
+  # it adds control chars to set color (and reset at the end).
+  VT_STYLES = {
+    bold: 1,
+    dim: 2,
+    italic: 3,
+    underline: 4,
+    blink: 5,
+    reverse_color: 7,
+    invisible: 8,
+    black: 30,
+    red: 31,
+    green: 32,
+    brown: 33,
+    blue: 34,
+    magenta: 35,
+    cyan: 36,
+    gray: 37,
+    bg_black: 40,
+    bg_red: 41,
+    bg_green: 42,
+    bg_brown: 43,
+    bg_blue: 44,
+    bg_magenta: 45,
+    bg_cyan: 46,
+    bg_gray: 47
+  }.freeze
+  private_constant :VT_STYLES
+  # defines methods to String, one per entry in VT_STYLES
+  VT_STYLES.each do |name, code|
+    if $stderr.tty?
+      begin_seq = vt_cmd(code)
+      end_code = 0 # by default reset all
+      if code <= 7 then code + 20
+      elsif code <= 37 then 39
+      elsif code <= 47 then 49
+      end
+      end_seq = vt_cmd(end_code)
+      define_method(name) { "#{begin_seq}#{self}#{end_seq}" }
+    else
+      define_method(name) { self }
+    end
+  end
+end
+
 begin
   require 'zip'
   require 'xmlsimple'
@@ -12,7 +68,8 @@ begin
   require 'logger'
 rescue LoadError => e
   puts(e.backtrace.join("\n"))
-  puts("Missing gems: read the manual: execute:\n\e[5mgem install bundler\nbundle install\e[0m")
+  puts('Missing gems: read the manual: execute:')
+  puts("gem install bundler\nbundle install".blink)
   exit(1)
 end
 
@@ -82,8 +139,12 @@ class ConfigurationImporter
     ETS_FUNCTIONS[m[1].to_i]
   end
 
+  def warning(entity, name, message)
+    @logger.warn("#{entity.red} #{name.green} #{message}")
+  end
+
   # Read both project.xml and 0.xml
-  # @return Hash {info: xmldata, data: xmldata}
+  # @return Hash {info: xml data, data: xml data}
   def read_file(file)
     raise "ETS file must end with #{ETS_EXT}" unless file.end_with?(ETS_EXT)
 
@@ -105,9 +166,9 @@ class ConfigurationImporter
   end
 
   # process group range recursively and find addresses
-  def process_group_ranges(gr)
-    gr['GroupRange'].each { |sgr| process_group_ranges(sgr) } if gr.key?('GroupRange')
-    gr['GroupAddress'].each { |ga| process_ga(ga) } if gr.key?('GroupAddress')
+  def process_group_ranges(group)
+    group['GroupRange'].each { |sgr| process_group_ranges(sgr) } if group.key?('GroupRange')
+    group['GroupAddress'].each { |ga| process_ga(ga) } if group.key?('GroupAddress')
   end
 
   # process a group address
@@ -122,7 +183,7 @@ class ConfigurationImporter
       custom: {} # modified by lambda
     }
     if ga['DatapointType'].nil?
-      @logger.warn("no datapoint type for #{group[:address]} : #{group[:name]}, group address is skipped")
+      warning(group[:address], group[:name], 'no datapoint type for address group, to be defined in ETS, skipping')
       return
     end
     # parse datapoint for easier use
@@ -130,7 +191,8 @@ class ConfigurationImporter
       # datapoint type as string x.00y
       group[:datapoint] = format('%d.%03d', m[1].to_i, m[2].to_i) # no freeze
     else
-      @logger.warn("Cannot parse data point type: #{ga['DatapointType']}, group is skipped, expect: DPST-x-x")
+      warning(group[:address], group[:name],
+              "Cannot parse data point type: #{ga['DatapointType']} (DPST-x-x), skipping")
       return
     end
     # Index is the internal Id in xml file
@@ -177,10 +239,11 @@ class ConfigurationImporter
   end
 
   def generate_homeass
-    haknx = {}
+    ha_config = {}
     # warn of group addresses that will not be used (you can fix in custom lambda)
     @data[:ga].values.select { |ga| ga[:objs].empty? }.each do |ga|
-      @logger.warn("group not in object: #{ga[:address]}: Create custom object in lambda if needed , or use ETS to create functions")
+      warning(ga[:address], ga[:name],
+              'Group not in object: use ETS to create functions or create custom object in lambda')
     end
     @data[:ob].each_value do |o|
       new_obj = o[:custom].key?(:ha_init) ? o[:custom][:ha_init] : {}
@@ -202,15 +265,15 @@ class ConfigurationImporter
           when :switchable_light, :dimmable_light then 'light'
           when :sun_protection then 'cover'
           when :custom, :heating_continuous_variable, :heating_floor, :heating_radiator, :heating_switching_variable
-            @logger.warn("function type not implemented for #{o[:name]}/#{o[:room]}: #{o[:type]}")
+            @logger.warn("#{o[:room].red} #{o[:name].green} function type #{o[:type].to_s.blue} not implemented")
             next
-          else @logger.error("function type not supported for #{o[:name]}/#{o[:room]}, please report: #{o[:type]}")
+          else @logger.error("#{o[:room].red} #{o[:name].green} function type #{o[:type].to_s.blue} not supported, please report")
                next
           end
         end
       # process all group addresses in function
-      o[:ga].each do |garef|
-        ga = @data[:ga][garef]
+      o[:ga].each do |group_address_reference|
+        ga = @data[:ga][group_address_reference]
         next if ga.nil?
 
         # find property name based on datapoint
@@ -232,35 +295,35 @@ class ConfigurationImporter
               case ha_obj_type
               when 'light' then 'brightness_address'
               when 'cover' then 'position_address'
-              else @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): no mapping for datapoint #{ga[:datapoint]}")
+              else warning(ga[:address], ga[:name],
+                           "#{ga[:datapoint]} expects: light or cover, not #{ha_obj_type.magenta}")
                    next
               end
             else
-              @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): no mapping for datapoint #{ga[:datapoint]}")
-
+              warning(ga[:address], ga[:name], "unmanaged datapoint #{ga[:datapoint].blue} (#{ha_obj_type.magenta})")
               next
             end
           end
         if ha_address_type.nil?
-          @logger.warn("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): unexpected nil property name")
+          warning(ga[:address], ga[:name], "address type not detected #{ga[:datapoint].blue} / #{ha_obj_type.magenta}")
           next
         end
         if new_obj.key?(ha_address_type)
-          @logger.error("#{ga[:address]}(#{ha_obj_type}:#{ga[:datapoint]}:#{ga[:name]}): ignoring for #{ha_address_type} already set with #{new_obj[ha_address_type]}")
+          @logger.error("#{ga[:address].red} #{ga[:name].green} (#{ha_obj_type.magenta}:#{ga[:datapoint]}) ignoring for #{ha_address_type} already set with #{new_obj[ha_address_type]}")
           next
         end
         new_obj[ha_address_type] = ga[:address]
       end
-      haknx[ha_obj_type] = [] unless haknx.key?(ha_obj_type)
+      ha_config[ha_obj_type] = [] unless ha_config.key?(ha_obj_type)
       # check name is not duplicated, as name is used to identify the object
-      if haknx[ha_obj_type].any? { |v| v['name'].casecmp?(new_obj['name']) }
-        @logger.warn("object name is duplicated: #{new_obj['name']}")
+      if ha_config[ha_obj_type].any? { |v| v['name'].casecmp?(new_obj['name']) }
+        @logger.warn("#{new_obj['name'].red} object name is duplicated")
       end
-      haknx[ha_obj_type].push(new_obj)
+      ha_config[ha_obj_type].push(new_obj)
     end
-    return { 'knx' => haknx }.to_yaml if @opts[:ha_knx]
+    return { 'knx' => ha_config }.to_yaml if @opts[:ha_knx]
 
-    haknx.to_yaml
+    ha_config.to_yaml
   end
 
   # https://sourceforge.net/p/linknx/wiki/Object_Definition_section/
@@ -297,7 +360,7 @@ opts.each do |opt, arg|
   case opt
   when '--help'
     puts <<-EOF
-            Usage: #{$PROGRAM_NAME} [--format format] [--lambda lambda] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <etsprojectfile>.knxproj
+            Usage: #{$PROGRAM_NAME} [--format format] [--lambda lambda] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <ets project file>.knxproj
 
             -h, --help:
               show help
@@ -315,7 +378,7 @@ opts.each do |opt, arg|
               one of debug, info, warn, error
 
             --ha-knx:
-              include level knx in ouput file
+              include level knx in output file
 
             --full-name:
               add room name in object name
@@ -342,10 +405,10 @@ if ARGV.length != 1
   Process.exit(1)
 end
 
-infile = ARGV.shift
+project_file_path = ARGV.shift
 
 # read and parse ETS file
-knx_config = ConfigurationImporter.new(infile, options)
+knx_config = ConfigurationImporter.new(project_file_path, options)
 # apply special code if provided
 eval(File.read(custom_lambda), binding, custom_lambda).call(knx_config) unless custom_lambda.nil?
 # generate result
