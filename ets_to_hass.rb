@@ -296,7 +296,7 @@ class ConfigurationImporter
       # compute object type, this is the section in HA configuration (switch, light, etc...)
       ha_obj_type = o[:custom][:ha_type] || map_ets_function_to_ha_type(o)
       if ha_obj_type.nil?
-        warning(o[:name], o[:room], "function type not detected #{o[:type].blue}")
+        warning(o[:name], o[:room], "function type not detected #{o[:type].to_s.blue}")
         next
       end
       # process all group addresses in function
