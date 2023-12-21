@@ -13,10 +13,16 @@
       "name": "ruby",
       "path": ".cspell.ruby.dict",
       "addWords": true
+    },
+    {
+      "name": "custom",
+      "path": ".cspell.custom.dict",
+      "addWords": true
     }
   ],
   "useGitignore": true,
   "dictionaries": [
+    "custom",
     "ruby",
     "technical",
     "shell"

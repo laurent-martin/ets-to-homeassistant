@@ -3,7 +3,7 @@ HA_EXT=.ha.yaml
 LK_EXT=.linknx.xml
 XK_EXT=.xknx.yaml
 PROJ_DIR=./
-TESTFILES=$(PROJ_DIR)examples
+TEST_FILES=$(PROJ_DIR)examples
 TOOL=$(PROJ_DIR)bin/ets_to_hass
 all::
 	@echo "nothing to build, do: make laurent"
@@ -15,9 +15,9 @@ laurent:
 clean:
 	rm -f *$(HA_EXT) *$(LK_EXT) *$(XK_EXT)
 test:
-	$(TOOL) $(TESTFILES)/Style1.knxproj
-	$(TOOL) $(TESTFILES)/Style2.knxproj
-	$(TOOL) $(TESTFILES)/Style3.knxproj
+	$(TOOL) $(TEST_FILES)/Style1.knxproj
+	$(TOOL) $(TEST_FILES)/Style2.knxproj
+	$(TOOL) $(TEST_FILES)/Style3.knxproj
 setup:
 	gem install bundler
 	bundle install

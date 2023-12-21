@@ -1,10 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# cspell:ignore knxproj datapoint dpst linknx sname homeass
-
 # Laurent Martin
-# translate configuration from ETS into KNXWeb and Home Assistant
 
 require 'zip'
 require 'xmlsimple'

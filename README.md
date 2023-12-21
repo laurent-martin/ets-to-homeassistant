@@ -2,7 +2,7 @@
 
 A Ruby tool to convert an ETS5 project file (`*.knxproj`) into:
 
-* a YAML configuration file suitable for **Home Assistant** (requires to define building, functions and group datapoints in ETS)
+* a YAML configuration file suitable for **Home Assistant** (requires to define building, functions and group data points in ETS)
 * an XML file for `linknx` (the object list only)
 
 [https://www.home-assistant.io/integrations/knx/](https://www.home-assistant.io/integrations/knx/)
