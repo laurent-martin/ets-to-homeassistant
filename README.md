@@ -9,12 +9,12 @@ A Ruby tool to convert an ETS5 project file (`*.knxproj`) into:
 
 ## Glossary
 
-**KNX Group Address**: a group address is a 1, 2 or 3-level address in the KNX system, e.g. `1/2/3.
-**KNX Data Point Type**: a data point type is a type of data that can be sent on a group address, e.g. **1.001**, **5.001**.
-**ETS Building Information**: In ETS, a building is a container for rooms and **ETS Function**.
-**ETS Function** : In ETS, represents an object that has several **KNX Group Address** associated to it.
-**HA Device** : In Home Assistant, a device has a type (e.g.`light`) and has **HA Config Variable**.
-**HA Config Variable** : In Home Assistant, it's a property of a device, e.g.`name`,`address`,`state_address`.
+* **KNX Group Address**: a group address is a 1, 2 or 3-level address in the KNX system, e.g. `1/2/3`.
+* **KNX Data Point Type**: a data point type is a type of data that can be sent on a group address, e.g. **1.001**, **5.001**.
+* **ETS Building Information**: In ETS, a building is a container for rooms and **ETS Function**.
+* **ETS Function** : In ETS, represents an object that has several **KNX Group Address** associated to it.
+* **HA Device** : In Home Assistant, a device has a type (e.g.`light`) and has **HA Config Variable**.
+* **HA Config Variable** : In Home Assistant, it's a property of a device, e.g.`name`,`address`,`state_address`.
 
 ## Important note
 
