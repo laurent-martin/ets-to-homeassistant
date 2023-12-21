@@ -6,77 +6,15 @@
 # Laurent Martin
 # translate configuration from ETS into KNXWeb and Home Assistant
 
-# Add colors
-class String
-  class << self
-    private
-
-    def vt_cmd(code)
-      "\e[#{code}m"
-    end
-  end
-  # see https://en.wikipedia.org/wiki/ANSI_escape_code
-  # symbol is the method name added to String
-  # it adds control chars to set color (and reset at the end).
-  VT_STYLES = {
-    bold:          1,
-    dim:           2,
-    italic:        3,
-    underline:     4,
-    blink:         5,
-    reverse_color: 7,
-    invisible:     8,
-    black:         30,
-    red:           31,
-    green:         32,
-    brown:         33,
-    blue:          34,
-    magenta:       35,
-    cyan:          36,
-    gray:          37,
-    bg_black:      40,
-    bg_red:        41,
-    bg_green:      42,
-    bg_brown:      43,
-    bg_blue:       44,
-    bg_magenta:    45,
-    bg_cyan:       46,
-    bg_gray:       47
-  }.freeze
-  private_constant :VT_STYLES
-  # defines methods to String, one per entry in VT_STYLES
-  VT_STYLES.each do |name, code|
-    if $stderr.tty?
-      begin_seq = vt_cmd(code)
-      end_code = 0 # by default reset all
-      if code <= 7 then code + 20
-      elsif code <= 37 then 39
-      elsif code <= 47 then 49
-      end
-      end_seq = vt_cmd(end_code)
-      define_method(name) { "#{begin_seq}#{self}#{end_seq}" }
-    else
-      define_method(name) { self }
-    end
-  end
-end
-
-begin
-  require 'zip'
-  require 'xmlsimple'
-  require 'getoptlong'
-  require 'yaml'
-  require 'json'
-  require 'logger'
-rescue LoadError => e
-  puts(e.backtrace.join("\n"))
-  puts('Missing gems: read the manual: execute:')
-  puts("gem install bundler\nbundle install".blink)
-  exit(1)
-end
+require 'zip'
+require 'xmlsimple'
+require 'yaml'
+require 'json'
+require 'logger'
+require 'string_colors'
 
 # Import ETS project file and generate configuration for Home Assistant and KNXWeb
-class ConfigurationImporter
+class EtsToHass
   # extension of ETS project file
   ETS_EXT = '.knxproj'
   # converters of group address integer address into representation
@@ -91,8 +29,6 @@ class ConfigurationImporter
     %i[custom switchable_light dimmable_light sun_protection heating_radiator heating_floor
        dimmable_light sun_protection heating_switching_variable heating_continuous_variable].freeze
   private_constant :ETS_EXT, :ETS_FUNCTIONS_INDEX_TO_NAME
-
-  attr_reader :data
 
   def initialize(file, options = {})
     # command line options
@@ -189,7 +125,7 @@ class ConfigurationImporter
       address:     parse_group_address(group_address['Address']), # group address as string. e.g. "x/y/z" depending on project style
       datapoint:   nil, # datapoint type as string "x.00y"
       objs:        [], # objects ids, it may be in multiple objects
-      custom:      {} # prepared to be potentially modified by lambda
+      custom:      {} # prepared to be potentially modified by specific code
     }
     if group_address['DatapointType'].nil?
       warning(group[:address], group[:name], 'no datapoint type for address group, to be defined in ETS, skipping')
@@ -288,19 +224,43 @@ class ConfigurationImporter
     end
   end
 
+  # call this to fix missing object or add specific handling
+  # or override this
+  def apply_specific
+    # generate new objects sequentially
+    new_object_id = 0
+    # loop on group addresses
+    @data[:ga].each do |id, ga|
+      # group address already assigned to an object
+      next unless ga[:objs].empty?
+
+      # generate a dummy object with a single group address
+      @data[:ob][new_object_id] = {
+        name:   ga[:name],
+        type:   :custom, # unknown, so assume just switch
+        ga:     [id],
+        floor:  'unknown floor',
+        room:   'unknown room',
+        custom: { ha_type: 'switch' } # custom values
+      }
+      # prepare next object identifier
+      new_object_id += 1
+    end
+  end
+
   # This creates the Home Assistant configuration in variable ha_config
   # based on @data coming from ETS
-  # and optionally modified by custom lambda
+  # and optionally modified by specific code in apply_specific
   def generate_homeass
     ha_config = {}
-    # warn of group addresses that will not be used (you can fix in custom lambda)
+    # warn of group addresses that will not be used (you can fix in specific code)
     @data[:ga].values.select { |ga| ga[:objs].empty? }.each do |ga|
       warning(ga[:address], ga[:name],
-              'Group not in object: use ETS to create functions or create custom object in lambda')
+              'Group not in object: use ETS to create functions or use specific code')
     end
-    # Generate devices from either functions in ETS, or from custom lambda
+    # Generate devices from either functions in ETS, or from specific code
     @data[:ob].each_value do |o|
-      # HA configuration object, either empty or from custom lambda
+      # HA configuration object, either empty or from specific code
       ha_device = o[:custom].key?(:ha_init) ? o[:custom][:ha_init] : {}
       # default name
       ha_device['name'] = @opts[:full_name] ? "#{o[:name]} #{o[:room]}" : o[:name] unless ha_device.key?('name')
@@ -350,92 +310,3 @@ class ConfigurationImporter
     end.join("\n")
   end
 end
-
-# prefix of generation methods
-GENE_PREFIX = 'generate_'
-# get list of generation methods
-gene_formats = (ConfigurationImporter.instance_methods - ConfigurationImporter.superclass.instance_methods)
-               .select { |m| m.to_s.start_with?(GENE_PREFIX) }
-               .map { |m| m[GENE_PREFIX.length..-1] }
-
-opts = GetoptLong.new(
-  ['--help', '-h', GetoptLong::NO_ARGUMENT],
-  ['--format', '-f', GetoptLong::REQUIRED_ARGUMENT],
-  ['--ha-knx', '-k', GetoptLong::NO_ARGUMENT],
-  ['--full-name', '-n', GetoptLong::NO_ARGUMENT],
-  ['--lambda', '-l', GetoptLong::REQUIRED_ARGUMENT],
-  ['--trace', '-t', GetoptLong::REQUIRED_ARGUMENT],
-  ['--output', '-o', GetoptLong::REQUIRED_ARGUMENT]
-)
-
-options = {}
-# default custom lambda
-custom_lambda = File.join(File.dirname(__FILE__), 'default_custom.rb')
-output_format = 'homeass'
-opts.each do |opt, arg|
-  case opt
-  when '--help'
-    puts <<-END_OF_MANUAL
-            Usage: #{$PROGRAM_NAME} [--format format] [--lambda lambda] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <ets project file>.knxproj
-
-            -h, --help:
-              show help
-
-            --format [format]:
-              one of #{gene_formats.join('|')}
-
-            --lambda [lambda]:
-              file with lambda
-
-            --addr [addr]:
-              one of #{ConfigurationImporter::GROUP_ADDRESS_PARSERS.keys.map(&:to_s).join(', ')}
-
-            --trace [trace]:
-              one of debug, info, warn, error
-
-            --ha-knx:
-              include level knx in output file
-
-            --full-name:
-              add room name in object name
-    END_OF_MANUAL
-    Process.exit(1)
-  when '--lambda'
-    custom_lambda = arg
-  when '--format'
-    output_format = arg
-    raise "Error: no such output format: #{output_format}" unless gene_formats.include?(output_format)
-  when '--ha-knx'
-    options[:ha_knx] = true
-  when '--full-name'
-    options[:full_name] = true
-  when '--trace'
-    options[:trace] = arg
-  when '--addr'
-    options[:addr] = arg
-  when '--output'
-    options[:output] = arg
-  else
-    raise "Unknown option #{opt}"
-  end
-end
-
-if ARGV.length != 1
-  puts 'Missing project file argument (try --help)'
-  Process.exit(1)
-end
-
-output_file =
-  if options[:output]
-    File.open(options[:output], 'w')
-  else
-    $stdout
-  end
-project_file_path = ARGV.shift
-
-# read and parse ETS file
-knx_config = ConfigurationImporter.new(project_file_path, options)
-# apply lambda code (default or user provided) with object as argument
-eval(File.read(custom_lambda), binding, custom_lambda).call(knx_config) unless custom_lambda.nil?
-# generate result (e.g. call generate_homeass)
-output_file.write(knx_config.send(:"#{GENE_PREFIX}#{output_format}"))

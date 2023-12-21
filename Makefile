@@ -2,20 +2,22 @@ ETS_EXT=.knxproj
 HA_EXT=.ha.yaml
 LK_EXT=.linknx.xml
 XK_EXT=.xknx.yaml
-TESTFILES=sample
+PROJ_DIR=./
+TESTFILES=$(PROJ_DIR)examples
+TOOL=$(PROJ_DIR)bin/ets_to_hass
 all::
 	@echo "nothing to build, do: make laurent"
 ETS_FILE=private/laurent/Beverly Mai - Maison.knxproj
-SPECIAL=laurent_specific.rb
+SPECIAL=$(PROJ_DIR)examples/laurent_specific.rb
 laurent:
-	./ets_to_hass.rb --format homeass --lambda $(SPECIAL) --full-name "$(ETS_FILE)" --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(HA_EXT)|')"
-	./ets_to_hass.rb --format linknx  --lambda $(SPECIAL) "$(ETS_FILE)" --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(LK_EXT)|')"
+	$(TOOL) --format homeass --specific $(SPECIAL) --full-name "$(ETS_FILE)" --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(HA_EXT)|')"
+	$(TOOL) --format linknx  --specific $(SPECIAL) "$(ETS_FILE)" --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(LK_EXT)|')"
 clean:
 	rm -f *$(HA_EXT) *$(LK_EXT) *$(XK_EXT)
 test:
-	./ets_to_hass.rb $(TESTFILES)/Style1.knxproj
-	./ets_to_hass.rb $(TESTFILES)/Style2.knxproj
-	./ets_to_hass.rb $(TESTFILES)/Style3.knxproj
+	$(TOOL) $(TESTFILES)/Style1.knxproj
+	$(TOOL) $(TESTFILES)/Style2.knxproj
+	$(TOOL) $(TESTFILES)/Style3.knxproj
 setup:
 	gem install bundler
 	bundle install

@@ -66,7 +66,7 @@ Refer to [Custom method](#custom-method)
 * macOS: builtin, or [RVM](https://rvm.io/), or [brew](https://brew.sh/), or [rbenv](https://github.com/rbenv/rbenv)
 * Windows: [Ruby Installer](https://rubyinstaller.org/)
 
-Clone this repo:
+Clone this repo: (or download zip file)
 
 ```bash
 git clone https://github.com/laurent-martin/ets-to-homeassistant.git
@@ -86,12 +86,12 @@ bundle install
 
 ## Usage
 
-Once Ruby is installed and this repo cloned, change directory to the main folder and execute `./ets_to_hass.rb`:
+Once Ruby is installed and this repo cloned, change directory to the main folder and execute `./bin/ets_to_hass`:
 
 General invocation syntax:
 
 ```bash
-Usage: ./ets_to_hass.rb [--format format] [--lambda lambda] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <etsprojectfile>.knxproj
+Usage: ./bin/ets_to_hass [--format format] [--specific specific.rb] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <etsprojectfile>.knxproj
 
 -h, --help:
  show help
@@ -99,8 +99,8 @@ Usage: ./ets_to_hass.rb [--format format] [--lambda lambda] [--addr addr] [--tra
 --format [format]:
  one of homeass|linknx
 
---lambda [lambda]:
- file with lambda
+--specific [specific.rb]:
+ file with specific code to process the ETS project
 
 --addr [addr]:
  one of Free, TwoLevel, ThreeLevel
@@ -118,7 +118,7 @@ Usage: ./ets_to_hass.rb [--format format] [--lambda lambda] [--addr addr] [--tra
 For example to generate the home assistant KNX configuration from the exported ETS project: `myexport.knxproj`
 
 ```bash
-./ets_to_hass.rb --format homeass --full-name myexport.knxproj > ha.yaml
+./bin/ets_to_hass --format homeass --full-name myexport.knxproj > ha.yaml
 ```
 
 Option `--ha-knx` adds the dictionary key `knx` in the generated Home Assistant configuration so that it can be copy/paste in `configuration.yaml`.
@@ -128,7 +128,7 @@ Else, typically, include the generated entities in a separate file like this:
 knx: !include config_knx.yaml
 ```
 
-The special processing lambda is `default_custom.rb` if none is provided.
+Default special processing code is used if none is provided.
 It will generate basic Objects/Functions for group addresses not part of a function.
 
 The generated result is displayed on terminal (STDOUT), so to store in a file, redirect using `>`.
@@ -143,7 +143,7 @@ Make sure that the project file is not password protected.
 
 * The tool parses the first project file found.
 * It extracts **ETS Building Information** and **KNX Group Address**es.
-* A Ruby object of type: `ConfigurationImporter` is created.
+* A Ruby object of type: `EtsToHass` is created.
 
   The property `data` of the object contains the project data and is structured like this:
 
@@ -160,7 +160,7 @@ Make sure that the project file is not password protected.
    address:          group address as string. e.g. "x/y/z" depending on project style,
    datapoint:        datapoint type as string "x.abc", e.g. 1.001,
    objs:             [list of _obid_ using this group address],
-   custom:           {custom values set by lambda: ha_address_type, linknx_disp_name }                                            # 
+   custom:           {custom values set by specific code: ha_address_type, linknx_disp_name }                                            # 
   },...
  },
  ob:{
@@ -170,13 +170,13 @@ Make sure that the project file is not password protected.
    floor:  "from ETS",
    room:   "from ETS",
    ga:     [list of _gaid_ included in this object],
-   custom: {custom values set by lambda: ha_init, ha_type}
+   custom: {custom values set by specific code: ha_init, ha_type}
   },...
  }
 }
 ```
 
-* the custom lambda is called giving an opportunity to modify this structure
+* the custom specific code is called giving an opportunity to modify this structure
 
 * Eventually, the HA configuration is generated
 
@@ -215,13 +215,13 @@ If the **KNX Data Point Type** of a **KNX Group Address** is not defined in the 
 
 If no **ETS Building Information** with **ETS Function** was created in the project, then the tool cannot guess which set of **KNX Group Address** refer to the same **HA Device**.
 
-It is possible to add this information using the third argument (custom script) which can add missing information, based, for example, on the name of the **KNX Group Address**.
+It is possible to add this information using option `--specific` (custom script) which can add missing information, based, for example, on the name of the **KNX Group Address**.
 
 For example, I used to use a naming convention like: `<room>:<object>:<type>` before using ETS features, and the custom script could guess the missing data type from `<type>`, and then group addresses into devices based on `<room>` and `<object>`.
 
 But if the convention is to place `ON/OFF` in `1/x/x` then you can use the first address identifier to guess the type of **KNX Group Address**.
 
-The optional post-processing function can modify the analyzed structure:
+The specific code can modify the analyzed structure:
 
 * It can delete objects, or create objects.
 * It can add fields in the `:custom` properties:
@@ -235,10 +235,19 @@ The optional post-processing function can modify the analyzed structure:
 
 The function can use any information such as fields of the object, or description or name of group address for that.
 
-The function is called with the `ConfigurationImporter` as argument, from which property `data` is used.
-
 Typically, the name of group addresses can be used if a specific naming convention was used.
 Or, if group addresses were defined using a specific convention: for example in a/b/c a is the type of action, b is the identifier of device...
+
+The specific code shall be like this:
+
+```ruby
+class EtsToHass
+  def apply_specific
+    @logger.info('Applying custom code: xxx')
+    # use @data to modify the structure
+  end
+end
+```
 
 ## Linknx
 
