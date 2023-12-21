@@ -28,11 +28,11 @@ lambda do |knx_config|
       knx[:ga][gid][:datapoint].replace('1.001')
       # create new object
       o_new["#{obj_id}_#{direction}"] = {
-        name: "#{object[:name]} #{direction}",
-        type: :custom, # simple switch
-        ga: [gid],
-        floor: object[:floor],
-        room: object[:room],
+        name:   "#{object[:name]} #{direction}",
+        type:   :custom, # simple switch
+        ga:     [gid],
+        floor:  object[:floor],
+        room:   object[:room],
         custom: { ha_type: 'switch' } # custom values
       }
     end
@@ -49,7 +49,7 @@ lambda do |knx_config|
     if object[:type].eql?(:sun_protection)
       object[:custom][:ha_init] ||= {}
       object[:custom][:ha_init].merge!({ 'travelling_time_down' => 59,
-                                         'travelling_time_up' => 59 })
+                                         'travelling_time_up'   => 59 })
     end
     object[:custom][:ha_type] = 'switch' if object[:type].eql?(:custom)
   end

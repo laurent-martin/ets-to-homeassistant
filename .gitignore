@@ -1,6 +1,4 @@
-/local/
-/Gemfile.lock
+/private/
 /tmp/
-*.ha.yaml
-*.linknx.xml
 .vscode
+/Gemfile.lock

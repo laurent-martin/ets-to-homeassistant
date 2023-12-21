@@ -198,7 +198,7 @@ Moreover, if **ETS Function** are located properly in **ETS Building Information
 
 When **ETS Function** are found, the tool will populate the `ob` `Hash`.
 
-The type of **ETS Function** is identified by a name:
+The type of **ETS Function** is identified by a name (in ETS project file it is `FT-[n]`):
 
 * `:custom`
 * `:switchable_light`

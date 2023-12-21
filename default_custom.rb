@@ -15,11 +15,11 @@ lambda do |knx_config|
 
     # generate a dummy object with a single group address
     knx[:ob][new_object_id] = {
-      name: ga[:name],
-      type: :custom, # unknown, so assume just switch
-      ga: [id],
-      floor: 'unknown floor',
-      room: 'unknown room',
+      name:   ga[:name],
+      type:   :custom, # unknown, so assume just switch
+      ga:     [id],
+      floor:  'unknown floor',
+      room:   'unknown room',
       custom: { ha_type: 'switch' } # custom values
     }
     # prepare next object identifier

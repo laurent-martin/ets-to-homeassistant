@@ -2,11 +2,22 @@
   "version": "0.2",
   "ignorePaths": [
     "*.dict",
-    ".cspell.json"
+    ".cspell.json",
+    "lib/aspera/data",
+    "**/*.tex",
+    "**/*.html",
+    "**/*.pptx"
   ],
-  "dictionaryDefinitions": [],
+  "dictionaryDefinitions": [
+    {
+      "name": "ruby",
+      "path": ".cspell.ruby.dict",
+      "addWords": true
+    }
+  ],
   "useGitignore": true,
   "dictionaries": [
+    "ruby",
     "technical",
     "shell"
   ],
@@ -62,7 +73,6 @@
       "filename": "**/Makefile",
       "languageId": "cpp",
       "enabled": true
-      // Add any other specific configurations for Makefiles
     }
   ]
 }

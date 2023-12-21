@@ -1,0 +1,64 @@
+AllCops:
+  SuggestExtensions: false
+  TargetRubyVersion: 2.7
+  NewCops: enable
+  Exclude:
+    - private/**/*
+    - tmp/**/*
+Naming/MethodName:
+  Enabled: false
+Naming/FileName:
+  Exclude:
+    - "**/*.gemspec"
+    - "**/*_spec.rb"
+Layout/HashAlignment:
+  EnforcedHashRocketStyle: table
+  EnforcedColonStyle: table
+Layout/LineLength:
+  Max: 170
+Layout/SpaceAfterComma:
+  Enabled: true
+Layout/EmptyLineAfterGuardClause:
+  Enabled: false
+Metrics/PerceivedComplexity:
+  Enabled: true
+  Max: 60
+Metrics/ParameterLists:
+  Max: 6
+Metrics/BlockNesting:
+  Max: 5
+Metrics/ClassLength:
+  Enabled: false
+Metrics/MethodLength:
+  Enabled: false
+Metrics/AbcSize:
+  Enabled: false
+Metrics/CyclomaticComplexity:
+  Enabled: false
+Metrics/BlockLength:
+  Enabled: false
+Style/TrailingCommaInHashLiteral:
+  EnforcedStyleForMultiline: no_comma
+Style/StringLiterals:
+  EnforcedStyle: single_quotes
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: single_quotes
+Style/BarePercentLiterals:
+  EnforcedStyle: percent_q
+Style/NumericLiteralPrefix:
+  EnforcedOctalStyle: zero_with_o
+Style/TrailingCommaInArrayLiteral:
+  EnforcedStyleForMultiline: no_comma
+Style/DateTime:
+  Enabled: false
+Style/TrailingCommaInArguments:
+  EnforcedStyleForMultiline: no_comma
+#  Enabled: false
+Style/FormatStringToken:
+  Enabled: false
+Style/Encoding:
+  Enabled: true
+Style/SlicingWithRange:
+  Enabled: false
+Lint/RedundantCopDisableDirective:
+  Enabled: false
