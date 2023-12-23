@@ -18,6 +18,7 @@ test:
 	$(TOOL) $(TEST_FILES)/Style1.knxproj
 	$(TOOL) $(TEST_FILES)/Style2.knxproj
 	$(TOOL) $(TEST_FILES)/Style3.knxproj
+	$(TOOL) $(TEST_FILES)/Style3.knxproj --addr Free
 setup:
 	gem install bundler
 	bundle install
