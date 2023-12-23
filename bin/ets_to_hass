@@ -29,7 +29,8 @@ opts = GetoptLong.new(
   ['--full-name', '-n', GetoptLong::NO_ARGUMENT],
   ['--specific', '-s', GetoptLong::REQUIRED_ARGUMENT],
   ['--trace', '-t', GetoptLong::REQUIRED_ARGUMENT],
-  ['--output', '-o', GetoptLong::REQUIRED_ARGUMENT]
+  ['--output', '-o', GetoptLong::REQUIRED_ARGUMENT],
+  ['--addr', '-a', GetoptLong::REQUIRED_ARGUMENT]
 )
 
 options = {}
