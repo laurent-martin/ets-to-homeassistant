@@ -4,3 +4,4 @@ gsub
 xmlsimple
 getoptlong
 gemdir
+chdir

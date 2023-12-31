@@ -2,7 +2,5 @@
 
 source 'https://rubygems.org'
 
-git_source(:github) { |repo_name| "https://github.com/#{repo_name}" }
-
-gem 'rubyzip'
-gem 'xml-simple'
+# gem's dependencies are in file <gem name>.gemspec
+gemspec
