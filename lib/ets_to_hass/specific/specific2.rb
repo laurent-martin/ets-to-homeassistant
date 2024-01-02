@@ -16,10 +16,10 @@ PREFIX = {
 
 # generate
 def fix_objects(obj)
-  gas = obj.data[:ga]
-  obs = obj.data[:ob]
+  group_addresses = obj.data[:ga]
+  objects = obj.data[:ob]
   # loop on group addresses
-  gas.each do |gaid, ga|
+  group_addresses.each do |gaid, ga|
     # ignore if the group address is already in an object
     next unless ga[:objs].empty?
 
@@ -40,9 +40,9 @@ def fix_objects(obj)
 
     # is this an existing object ?
     objid = obj_name
-    object = obs[objid]
+    object = objects[objid]
     if object.nil?
-      object = obs[objid] = {
+      object = objects[objid] = {
         name:   obj_name,
         type:   :custom, # unknown, so assume just switch
         ga:     [],
