@@ -6,7 +6,7 @@ GROUP_TO_ADDR_TYPE = {
   '/4/' => 'brightness_state_address'
 }.freeze
 DATAPOINT_TO_ADDR_TYPE = {
-  '3.007' => :ignore
+  '3.007' => :ignore # action "up" / "down"
 }.freeze
 
 # Laurent's specific code for KNX configuration
@@ -21,12 +21,13 @@ def fix_objects(generator)
     object[:ha][:domain] ||= 'switch' if object[:type].eql?(:custom)
     # need only to manage covers/blinds
     next unless object[:type].eql?(:sun_protection)
+    group_ids = object_ga_ids(obj_id)
     # manage in special manner my blinds, identified by "pulse" in address group name
-    if group_address_data(object[:ga_ids].first)[:name].end_with?(':Pulse')
+    if group_address_data(group_ids.first)[:name].end_with?(':Pulse')
       # delete current object: will be split into 2
       generator.delete_object(obj_id)
       # loop on GA for this object (one for up and one for down)
-      object[:ga_ids].each do |ga_id|
+      group_ids.each do |ga_id|
         ga_data = group_address_data(ga_id)
         # get direction of GA based on name
         direction =

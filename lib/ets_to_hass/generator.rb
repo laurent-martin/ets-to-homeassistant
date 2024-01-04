@@ -5,6 +5,7 @@ require 'xmlsimple'
 require 'yaml'
 require 'json'
 require 'logger'
+require 'fileutils'
 require 'ets_to_hass/string_colors'
 require 'ets_to_hass/info'
 
@@ -59,7 +60,9 @@ module EtsToHass
       # command line options
       @opts = options
       # parsed data: ob: objects (ETS functions), ga: group addresses
-      @data = { ob: {}, ga: {} }
+      @objects = {}
+      @group_addresses = {}
+      @associations = []
       # log to stderr, so that redirecting stdout captures only generated data
       @logger = Logger.new($stderr)
       @logger.level = @opts.key?(:trace) ? @opts[:trace] : Logger::INFO
@@ -74,16 +77,20 @@ module EtsToHass
       @logger.info("Using project #{proj_info['Name']}, address style: #{@group_addr_style}")
       # locate main node in xml
       installation = self.class.dig_xml(project[:data], %w[Project Installations Installation])
-      # process group ranges: fill @data[:ga]
+      # process group ranges: fill @group_addresses
       process_group_ranges(self.class.dig_xml(installation, %w[GroupAddresses GroupRanges]))
-      # process group ranges: fill @data[:ob] (for 2 versions of ETS which have different tags?)
+      # process group ranges: fill @objects (for 2 versions of ETS which have different tags?)
       process_space(self.class.dig_xml(installation, ['Locations']), 'Space') if installation.key?('Locations')
       process_space(self.class.dig_xml(installation, ['Buildings']), 'BuildingPart') if installation.key?('Buildings')
-      @logger.warn('No building information found.') if @data[:ob].keys.empty?
+      @logger.warn('No building information found.') if @objects.keys.empty?
       return unless @opts[:specific]
+      unless File.exist?(@opts[:specific])
+        @logger.warn("Specific code file #{@opts[:specific]} not found, creating generic one.")
+        FileUtils.cp(File.join(File.dirname(__FILE__), 'specific', 'generic.rb'), @opts[:specific])
+      end
       # load specific code
       load(@opts[:specific])
-      raise "no method found in #{specific}" unless self.class.specific_defined?
+      raise "no method found in #{@opts[:specific]}" unless self.class.specific_defined?
     end
 
     def warning(entity, name, message)
@@ -131,7 +138,6 @@ module EtsToHass
         description: group_address['Description'].freeze, # ETS: description field
         address:     parse_group_address(group_address['Address']), # group address as string. e.g. "x/y/z" depending on project style
         datapoint:   nil, # datapoint type as string "x.00y"
-        obj_ids:     [], # objects ids, it may be in multiple objects
         ha:          { address_type: nil } # prepared to be potentially modified by specific code
       }
       if group_address['DatapointType'].nil?
@@ -148,7 +154,7 @@ module EtsToHass
         return
       end
       # Index is the internal Id in xml file
-      @data[:ga][group_address['Id'].freeze] = group.freeze
+      @group_addresses[group_address['Id'].freeze] = group.freeze
       @logger.debug("group: #{group}")
     end
 
@@ -184,8 +190,8 @@ module EtsToHass
           ha:   { domain: nil } # hone assistant values
         }.merge(info)
         add_object(ets_function['Id'], ets_object)
-        ets_function['GroupAddressRef'].map { |g| g['RefId'].freeze }.each do |group_address_reference|
-          associate(ga_id: group_address_reference, object_id: ets_function['Id'])
+        ets_function['GroupAddressRef'].map { |g| g['RefId'].freeze }.each do |group_address_id|
+          associate(ga_id: group_address_id, object_id: ets_function['Id'])
         end
         @logger.debug("function: #{ets_object}")
       end
@@ -235,48 +241,47 @@ module EtsToHass
     # @param ga_id group address id
     # @returns array of objects for this group id
     def ga_object_ids(ga_id)
-      @data[:ga][ga_id][:obj_ids]
+      @associations.select { |a| a[:ga_id].eql?(ga_id) }.map { |a| a[:object_id] }
     end
 
     def all_object_ids
-      @data[:ob].keys
+      @objects.keys
     end
 
     # @param object_id object id
     # @returns array of group addresses for this object
     def object_ga_ids(object_id)
-      @data[:ob][object_id][:ga_ids]
+      @associations.select { |a| a[:object_id].eql?(object_id) }.map { |a| a[:ga_id] }
     end
 
     def all_ga_ids
-      @data[:ga].keys
+      @group_addresses.keys
     end
 
     def associate(ga_id:, object_id:)
-      @data[:ga][ga_id][:obj_ids].push(object_id)
-      @data[:ob][object_id][:ga_ids].push(ga_id)
+      @associations.push({ ga_id: ga_id, object_id: object_id })
     end
 
     def delete_object(object_id)
-      @data[:ob].delete(object_id)
+      @objects.delete(object_id)
+      @associations.delete_if { |a| a[:object_id].eql?(object_id) }
     end
 
     def add_object(object_id, object)
-      object[:ga_ids] = []
       # objects will not be modified, this shall be what comes from ETS only, use field `ha` for specific code
-      @data[:ob][object_id] = object.freeze
+      @objects[object_id] = object.freeze
     end
 
     def object(object_id)
-      @data[:ob][object_id]
+      @objects[object_id]
     end
 
     def group_address_data(ga_id)
-      @data[:ga][ga_id]
+      @group_addresses[ga_id]
     end
 
     # This creates the Home Assistant configuration in variable ha_config
-    # based on @data coming from ETS
+    # based on data coming from ETS
     # and optionally modified by specific code in apply_specific
     def generate_homeass
       # First, apply user-provided specific code
@@ -287,12 +292,14 @@ module EtsToHass
       # This will be the YAML for HA
       ha_config = {}
       # warn of group addresses that will not be used (you can fix in specific code)
-      @data[:ga].values.select { |ga_data| ga_data[:obj_ids].empty? }.each do |ga_data|
-        warning(ga_data[:address], ga_data[:name],
-                'Group not in object: use ETS to create functions or use specific code')
+      all_ga_ids.each do |ga_id|
+        next unless ga_object_ids(ga_id).empty?
+        ga_data = group_address_data(ga_id)
+        warning(ga_data[:address], ga_data[:name], 'Group not in object: use ETS to create functions or use specific code')
       end
       # Generate devices from either functions in ETS, or from specific code
-      @data[:ob].each_value do |ets_object|
+      all_object_ids.each do |object_id|
+        ets_object = object(object_id)
         # compute object domain, this is the section in HA configuration (switch, light, etc...)
         ha_object_domain = ets_object[:ha].delete(:domain) || map_ets_function_to_ha_object_category(ets_object)
         if ha_object_domain.nil?
@@ -306,15 +313,17 @@ module EtsToHass
         # default name
         ha_device['name'] ||= @opts[:full_name] ? "#{ets_object[:name]} #{ets_object[:room]}" : ets_object[:name]
         # check name is not duplicated, as name is used to identify the object
-        @logger.warn("#{ha_device['name'].red} object name is duplicated") if ha_config[ha_object_domain].any? { |v| v['name'].casecmp?(ha_device['name']) }
+        if ha_config[ha_object_domain].any? { |v| v['name'].casecmp?(ha_device['name']) }
+          @logger.warn("#{ha_device['name'].red} object name is duplicated (check ETS objects and rooms)")
+        end
         # add object to configuration
         ha_config[ha_object_domain].push(ha_device)
         # process all group addresses in ETS function (object)
-        ets_object[:ga_ids].each do |group_address_reference|
+        object_ga_ids(object_id).each do |group_address_id|
           # get this group information
-          ga_data = @data[:ga][group_address_reference]
+          ga_data = group_address_data(group_address_id)
           if ga_data.nil?
-            @logger.error("#{ets_object[:name].red} #{ets_object[:room].green} (#{ets_object[:type].to_s.magenta}): #{group_address_reference}: group address not found, skipping")
+            @logger.error("#{ets_object[:name].red} #{ets_object[:room].green} (#{ets_object[:type].to_s.magenta}): #{group_address_id}: group address not found, skipping")
             next
           end
           # find HA property name based on datapoint
@@ -345,7 +354,7 @@ module EtsToHass
 
     # https://sourceforge.net/p/linknx/wiki/Object_Definition_section/
     def generate_linknx
-      @data[:ga].values.sort { |a, b| a[:address] <=> b[:address] }.map do |ga_data|
+      @group_addresses.values.sort { |a, b| a[:address] <=> b[:address] }.map do |ga_data|
         linknx_name = ga_data[:name]
         linknx_id = "id_#{ga_data[:address].gsub('/', '_')}"
         %Q(        <object type="#{ga_data[:datapoint]}" id="#{linknx_id}" gad="#{ga_data[:address]}" init="request">#{linknx_name}</object>)

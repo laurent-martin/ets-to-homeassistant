@@ -24,14 +24,14 @@ gene_formats = (EtsToHass::Generator.instance_methods - EtsToHass::Generator.sup
 
 opts = GetoptLong.new(
   ['--help', '-h', GetoptLong::NO_ARGUMENT],
-  ['--format', '-f', GetoptLong::REQUIRED_ARGUMENT],
   ['--ha-knx', '-k', GetoptLong::NO_ARGUMENT],
   ['--sort-by-name', '-r', GetoptLong::NO_ARGUMENT],
   ['--full-name', '-n', GetoptLong::NO_ARGUMENT],
+  ['--format', '-f', GetoptLong::REQUIRED_ARGUMENT],
   ['--fix', '-s', GetoptLong::REQUIRED_ARGUMENT],
+  ['--addr', '-a', GetoptLong::REQUIRED_ARGUMENT],
   ['--trace', '-t', GetoptLong::REQUIRED_ARGUMENT],
-  ['--output', '-o', GetoptLong::REQUIRED_ARGUMENT],
-  ['--addr', '-a', GetoptLong::REQUIRED_ARGUMENT]
+  ['--output', '-o', GetoptLong::REQUIRED_ARGUMENT]
 )
 
 options = {}
@@ -39,32 +39,35 @@ output_format = 'homeass'
 opts.each do |opt, arg|
   case opt
   when '--help'
-    puts <<-END_OF_MANUAL
-            Usage: #{$PROGRAM_NAME} [options] <ets project file>.knxproj
+    puts <<~END_OF_MANUAL
+      Usage: #{$PROGRAM_NAME} [options] <ets project file>.knxproj
 
-            -h, --help:
-              show help
+          -h, --help
+            show help
 
-            --format [format]:
-              one of #{gene_formats.join('|')}
+          --ha-knx
+            include level knx in output file
 
-            --fix [ruby file]:
-              file with specific code to fix objects
+          --sort-by-name
+            sort arrays by name
 
-            --addr [addr]:
-              one of #{EtsToHass::Generator::GROUP_ADDRESS_PARSERS.keys.map(&:to_s).join(', ')}
+          --full-name
+            add room name in object name
 
-            --trace [trace]:
-              one of debug, info, warn, error
+          --format [format]
+            one of #{gene_formats.join('|')}
 
-              --ha-knx:
-              include level knx in output file
+          --fix [ruby file]
+            file with specific code to fix objects
 
-              --sort-by-name:
-              sort arrays by name
+          --addr [addr]
+            one of #{EtsToHass::Generator::GROUP_ADDRESS_PARSERS.keys.map(&:to_s).join(', ')}
 
-            --full-name:
-              add room name in object name
+          --trace [trace]
+            one of debug, info, warn, error
+
+          --output [file]
+            add room name in object name
     END_OF_MANUAL
     Process.exit(1)
   when '--fix'

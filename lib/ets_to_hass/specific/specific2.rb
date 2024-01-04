@@ -18,10 +18,9 @@ PREFIX = {
 def fix_objects(generator)
   # loop on group addresses
   generator.all_ga_ids.each do |ga_id|
-    ga_data = generator.group_address_data(ga_id)
     # ignore if the group address is already in an object
-    next unless ga_data[:obj_ids].empty?
-
+    next unless generator.ga_object_ids(ga_id).empty?
+    ga_data = generator.group_address_data(ga_id)
     obj_name = nil
     object_domain = nil
     # try to guess an object name from group address name
@@ -37,7 +36,7 @@ def fix_objects(generator)
       next
     end
 
-    # is this an existing object ?
+    # use name as id, so that we can easily group GAs
     obj_id = obj_name
 
     if generator.object(obj_id).nil?
