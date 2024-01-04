@@ -1,4 +1,7 @@
 /private/
 /tmp/
+*.gem
 .vscode
 /Gemfile.lock
+/.bundle/
+.gems_checked

@@ -23,17 +23,17 @@ In order for the tool to generate result properly read the following.
 An actionable entity in KNX is a **KNX Group Address**: commands are exchanged in a group address on the KNX Bus.
 For example a dimmable light has at least one group address for On/Off and another for the dimming value.
 
-Actionable entities in **Home Assistant** are **HA Device**.
+An actionable entity in **Home Assistant** is an **HA Device**.
 For example, a dimmable light is a device and has properties, one of them is the group address for On/Off and another is the group address for the dimming value.
 
-So, for the tool to work, the following pieces of information must be found:
+So, for this tool to work, the following pieces of information must be found:
 
 * **KNX Group Address**
-* **KNX Data Point Type** for each **KNX Group Address**
-* Grouping of group addresses into devices : **ETS Function** in ETS mapped to **HA Device** in Home Assistant
+* The purpose for each **KNX Group Address** (typically, a **KNX Data Point Type**)
+* Grouping of group addresses into devices : e.g. **ETS Function** in ETS mapped to **HA Device** in Home Assistant
 
 By default, and in fact in a lot of ETS projects, only group addresses are defined as this is sufficient for an installation.
-I.e. no functions are defined, and data point types are not defined for group addresses.
+I.e. no **ETS Function** is defined, and **KNX Data Point Type**s are not defined for group addresses.
 This is why this tool will not work out of the box most of the times: missing information.
 The next 2 sections explain how to fix this.
 
@@ -42,7 +42,7 @@ The next 2 sections explain how to fix this.
 **KNX Group Address**es are defined in the ETS project file naturally, as it is the base for the system to work.
 But we need the types of them (e.g. **on/off** versus **dim value**) in order to create the HA configuration.
 
-The best, easiest and most reliable way for the tool to find the **KNX Data Point Type** is to specify the **KNX Data Point Type** in the group address itself in ETS.
+The best, easiest and most reliable way for the tool to find the type of **KNX Group Address** is to specify the **KNX Data Point Type** in the **KNX Group Address** itself in ETS.
 This requires editing the KNX project.
 Refer to [Structure in ETS](#structure-in-ets).
 
@@ -60,65 +60,62 @@ Refer to [Custom method](#custom-method)
 
 ## Installation
 
-[Install Ruby for your platform](https://www.ruby-lang.org/fr/downloads/):
+1. [Install Ruby for your platform](https://www.ruby-lang.org/fr/downloads/):
 
-* Linux: builtin (yum, apt), or [RVM](https://rvm.io/), or [rbenv](https://github.com/rbenv/rbenv)
-* macOS: builtin, or [RVM](https://rvm.io/), or [brew](https://brew.sh/), or [rbenv](https://github.com/rbenv/rbenv)
-* Windows: [Ruby Installer](https://rubyinstaller.org/)
+    * Windows: [Ruby Installer](https://rubyinstaller.org/)
+    * macOS: builtin, or [RVM](https://rvm.io/), or [brew](https://brew.sh/), or [rbenv](https://github.com/rbenv/rbenv)
+    * Linux: builtin (yum, apt), or [RVM](https://rvm.io/), or [rbenv](https://github.com/rbenv/rbenv)
 
-Clone this repo: (or download zip file)
+2. Install this gem
 
-```bash
-git clone https://github.com/laurent-martin/ets-to-homeassistant.git
-````
+    ```bash
+    gem install ets-to-homeassistant
+    ```
 
-Install required gems (`xml-simple`, `rubyzip`):
-
-```bash
-cd ets-to-homeassistant
-
-gem install bundler
-
-bundle install
-```
-
-> **Note:** On windows make sure that the file `Gemfile` is not renamed `Gemfile.txt`
+3. Test it works:
+  
+      ```bash
+      ets_to_hass --help
+      ```
 
 ## Usage
-
-Once Ruby is installed and this repo cloned, change directory to the main folder and execute `./bin/ets_to_hass`:
 
 General invocation syntax:
 
 ```bash
-Usage: ./bin/ets_to_hass [--format format] [--specific specific.rb] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <etsprojectfile>.knxproj
+Usage: .ets_to_hass [options] <ets project file>.knxproj
 
--h, --help:
- show help
+    -h, --help
+      show help
 
---format [format]:
- one of homeass|linknx
+    --ha-knx
+      include level knx in output file
 
---specific [specific.rb]:
- file with specific code to process the ETS project
+    --sort-by-name
+      sort arrays by name
 
---addr [addr]:
- one of Free, TwoLevel, ThreeLevel
+    --full-name
+      add room name in object name
 
---trace [trace]:
- one of debug, info, warn, error
+    --format [format]
+      one of homeass|linknx
 
---ha-knx:
- include level knx in ouput file
+    --fix [ruby file]
+      file with specific code to fix objects
 
---full-name:
- add room name in object name
-```
+    --addr [addr]
+      one of Free, TwoLevel, ThreeLevel
+
+    --trace [trace]
+      one of debug, info, warn, error
+
+    --output [file]
+      add room name in object name```
 
 For example to generate the home assistant KNX configuration from the exported ETS project: `myexport.knxproj`
 
 ```bash
-./bin/ets_to_hass --format homeass --full-name myexport.knxproj > ha.yaml
+ets_to_hass --full-name --format homeass --output config_knx.yaml myexport.knxproj
 ```
 
 Option `--ha-knx` adds the dictionary key `knx` in the generated Home Assistant configuration so that it can be copy/paste in `configuration.yaml`.
@@ -128,10 +125,8 @@ Else, typically, include the generated entities in a separate file like this:
 knx: !include config_knx.yaml
 ```
 
-Default special processing code is used if none is provided.
+If option `--fix` with a path to a non-existing file, then the tool will create a template file with the default code.
 It will generate basic Objects/Functions for group addresses not part of a function.
-
-The generated result is displayed on terminal (STDOUT), so to store in a file, redirect using `>`.
 
 Logs are sent to STDERR.
 
@@ -143,40 +138,40 @@ Make sure that the project file is not password protected.
 
 * The tool parses the first project file found.
 * It extracts **ETS Building Information** and **KNX Group Address**es.
-* A Ruby object of type: `EtsToHass` is created.
+* A Ruby object of type: `EtsToHass` is created, with the following fields:
 
-  The property `data` of the object contains the project data and is structured like this:
+  `@groups_addresses` contains all **KNX Group Address**es, `_gaid_` is the internal identifier of the **KNX Group Address** in ETS
 
-  `ga` contains all **KNX Group Address**es, `_gaid_` is the internal identifier of the **KNX Group Address** in ETS
-
-  `ob` contains all **ETS Function**, `_obid_` is the internal identifier of the **ETS Function** in ETS
+  `@objects` contains all **ETS Function**, `_obid_` is the internal identifier of the **ETS Function** in ETS
 
 ```ruby
-{
- ga:{
+@groups_addresses = {
   _gaid_ => {
    name:             "from ETS",
    description:      "from ETS",
    address:          group address as string. e.g. "x/y/z" depending on project style,
    datapoint:        datapoint type as string "x.abc", e.g. 1.001,
-   objs:             [list of _obid_ using this group address],
-   custom:           {custom values set by specific code: ha_address_type, linknx_disp_name }                                            # 
+   ha:               {address_type: '...' } # set by specific code, HA parameter for address
   },...
- },
- ob:{
+}
+@objects = {
   _obid_ => {
    name:   "from ETS, either function name or full name with room if option --full-name is used",
    type:   "ETS function type, see below",
    floor:  "from ETS",
    room:   "from ETS",
-   ga:     [list of _gaid_ included in this object],
-   custom: {custom values set by specific code: ha_init, ha_type}
+   ha:     {domain: '...', ha parameters... } # set by specific code, HA parameters
   },...
  }
-}
+@associations = [[_gaid_,_obid_],...]
 ```
 
-* the custom specific code is called giving an opportunity to modify this structure
+* a default mapping is proposed in methods:
+  
+  * `map_ets_datapoint_to_ha_address_type` : default value for `@group_addresses[x][:ha][:address_type]`
+  * `map_ets_function_to_ha_object_category` : default value for `@objects[x][:ha][:domain]`
+
+* the custom specific code is called giving an opportunity to modify this structure.
 
 * Eventually, the HA configuration is generated
 
@@ -196,7 +191,7 @@ In the following screenshot, note that both **KNX Group Address** and **ETS Func
 
 Moreover, if **ETS Function** are located properly in **ETS Building Information** levels and rooms, the tool will read this information.
 
-When **ETS Function** are found, the tool will populate the `ob` `Hash`.
+When **ETS Function** are found, the tool will populate the `@objects` `Hash`.
 
 The type of **ETS Function** is identified by a name (in ETS project file it is `FT-[n]`):
 
@@ -215,7 +210,7 @@ If the **KNX Data Point Type** of a **KNX Group Address** is not defined in the 
 
 If no **ETS Building Information** with **ETS Function** was created in the project, then the tool cannot guess which set of **KNX Group Address** refer to the same **HA Device**.
 
-It is possible to add this information using option `--specific` (custom script) which can add missing information, based, for example, on the name of the **KNX Group Address**.
+It is possible to add this information using option `--fix` (custom script) which can add missing information, based, for example, on the name of the **KNX Group Address**.
 
 For example, I used to use a naming convention like: `<room>:<object>:<type>` before using ETS features, and the custom script could guess the missing data type from `<type>`, and then group addresses into devices based on `<room>` and `<object>`.
 
@@ -224,14 +219,13 @@ But if the convention is to place `ON/OFF` in `1/x/x` then you can use the first
 The specific code can modify the analyzed structure:
 
 * It can delete objects, or create objects.
-* It can add fields in the `:custom` properties:
+* It can add fields in the `:ha` properties:
 
-  * in `ga`:
-    * `ha_address_type` : define the use for the group address
-    * `linknx_disp_name` : set the description of group address in `linknx`
-  * in `ob`:
-    * `ha_type` : force the entity type in HA (switch, light, etc.)
-    * `ha_init` : initialize the HA object with some values
+  * in `@group_addresses`:
+    * `address_type` : define the use for the group address, e.g. `address`, `state_address`, etc...
+  * in `@objects`:
+    * `domain` : set the entity type in HA (`switch`, `light`, etc), this key is then removed from the `Hash`
+    * **Other fields** : initialize the HA object with these values, e.g. `name`
 
 The function can use any information such as fields of the object, or description or name of group address for that.
 
@@ -241,11 +235,8 @@ Or, if group addresses were defined using a specific convention: for example in 
 The specific code shall be like this:
 
 ```ruby
-class EtsToHass
-  def apply_specific
-    @logger.info('Applying custom code: xxx')
-    # use @data to modify the structure
-  end
+def fix_objects(generator)
+  # use methods of generator to modify the structure
 end
 ```
 
@@ -264,3 +255,4 @@ Include the version of ETS used and logs.
 ## TODO
 
 One possibility would be to add extra information in the description of the group address and/or function in ETS, and then parse it in the tool.
+For example, as YAML format.

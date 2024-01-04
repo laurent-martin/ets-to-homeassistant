@@ -5,8 +5,8 @@
 $LOAD_PATH.unshift(File.join(File.dirname(__dir__), 'lib'))
 
 begin
-  require 'string_colors'
-  require 'ets_to_hass'
+  require 'ets_to_hass/string_colors'
+  require 'ets_to_hass/generator'
   require 'getoptlong'
 rescue LoadError => e
   puts(e.backtrace.join("\n"))
@@ -18,60 +18,67 @@ end
 # prefix of generation methods
 GENE_PREFIX = 'generate_'
 # get list of generation methods
-gene_formats = (EtsToHass.instance_methods - EtsToHass.superclass.instance_methods)
+gene_formats = (EtsToHass::Generator.instance_methods - EtsToHass::Generator.superclass.instance_methods)
                .select { |m| m.to_s.start_with?(GENE_PREFIX) }
                .map { |m| m[GENE_PREFIX.length..-1] }
 
 opts = GetoptLong.new(
   ['--help', '-h', GetoptLong::NO_ARGUMENT],
-  ['--format', '-f', GetoptLong::REQUIRED_ARGUMENT],
   ['--ha-knx', '-k', GetoptLong::NO_ARGUMENT],
+  ['--sort-by-name', '-r', GetoptLong::NO_ARGUMENT],
   ['--full-name', '-n', GetoptLong::NO_ARGUMENT],
-  ['--specific', '-s', GetoptLong::REQUIRED_ARGUMENT],
+  ['--format', '-f', GetoptLong::REQUIRED_ARGUMENT],
+  ['--fix', '-s', GetoptLong::REQUIRED_ARGUMENT],
+  ['--addr', '-a', GetoptLong::REQUIRED_ARGUMENT],
   ['--trace', '-t', GetoptLong::REQUIRED_ARGUMENT],
-  ['--output', '-o', GetoptLong::REQUIRED_ARGUMENT],
-  ['--addr', '-a', GetoptLong::REQUIRED_ARGUMENT]
+  ['--output', '-o', GetoptLong::REQUIRED_ARGUMENT]
 )
 
 options = {}
-# default custom specific
-specific_override = nil
 output_format = 'homeass'
 opts.each do |opt, arg|
   case opt
   when '--help'
-    puts <<-END_OF_MANUAL
-            Usage: #{$PROGRAM_NAME} [--format format] [--specific specific] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <ets project file>.knxproj
+    puts <<~END_OF_MANUAL
+      Usage: #{$PROGRAM_NAME} [options] <ets project file>.knxproj
 
-            -h, --help:
-              show help
+          -h, --help
+            show help
 
-            --format [format]:
-              one of #{gene_formats.join('|')}
+          --ha-knx
+            include level knx in output file
 
-            --specific [specific]:
-              file with specific
+          --sort-by-name
+            sort arrays by name
 
-            --addr [addr]:
-              one of #{EtsToHass::GROUP_ADDRESS_PARSERS.keys.map(&:to_s).join(', ')}
+          --full-name
+            add room name in object name
 
-            --trace [trace]:
-              one of debug, info, warn, error
+          --format [format]
+            one of #{gene_formats.join('|')}
 
-            --ha-knx:
-              include level knx in output file
+          --fix [ruby file]
+            file with specific code to fix objects
 
-            --full-name:
-              add room name in object name
+          --addr [addr]
+            one of #{EtsToHass::Generator::GROUP_ADDRESS_PARSERS.keys.map(&:to_s).join(', ')}
+
+          --trace [trace]
+            one of debug, info, warn, error
+
+          --output [file]
+            add room name in object name
     END_OF_MANUAL
     Process.exit(1)
-  when '--specific'
-    specific_override = arg
+  when '--fix'
+    options[:specific] = arg
   when '--format'
     output_format = arg
     raise "Error: no such output format: #{output_format}" unless gene_formats.include?(output_format)
   when '--ha-knx'
     options[:ha_knx] = true
+  when '--sort-by-name'
+    options[:sort_by_name] = true
   when '--full-name'
     options[:full_name] = true
   when '--trace'
@@ -99,10 +106,6 @@ output_file =
 project_file_path = ARGV.shift
 
 # read and parse ETS file
-knx_config = EtsToHass.new(project_file_path, options)
-load(specific_override) if specific_override
-knx_config.apply_specific
-# apply specific code (default or user provided) with object as argument
-load(specific_override) if specific_override
+generator = EtsToHass::Generator.new(project_file_path, options)
 # generate result (e.g. call generate_homeass)
-output_file.write(knx_config.send(:"#{GENE_PREFIX}#{output_format}"))
+output_file.write(generator.send(:"#{GENE_PREFIX}#{output_format}"))
