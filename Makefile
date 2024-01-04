@@ -144,7 +144,7 @@ changes:
 
 ##################################
 # Docker image
-DOCKER_REPO=todo/todo
+DOCKER_REPO=martinlaurent/ets-to-homeassistant
 DOCKER_IMG_VERSION=$(GEM_VERSION)
 DOCKER_TAG_VERSION=$(DOCKER_REPO):$(DOCKER_IMG_VERSION)
 DOCKER_TAG_LATEST=$(DOCKER_REPO):latest
