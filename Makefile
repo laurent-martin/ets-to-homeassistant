@@ -55,7 +55,7 @@ clean:: clean_gems_installed
 clean_gems_installed:
 	rm -f $(DIR_TOP).gems_checked $(DIR_TOP)Gemfile.lock
 
-all:: $(DIR_TOP).gems_checked doc signed_gem
+all:: $(DIR_TOP).gems_checked signed_gem
 clean::
 	rm -fr $(DIR_TMP)
 	rm -f Gemfile.lock
