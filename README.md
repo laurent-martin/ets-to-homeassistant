@@ -159,8 +159,8 @@ Make sure that the project file is not password protected.
    description:      "from ETS",
    address:          group address as string. e.g. "x/y/z" depending on project style,
    datapoint:        datapoint type as string "x.abc", e.g. 1.001,
-   objs:             [list of _obid_ using this group address],
-   custom:           {custom values set by specific code: ha_address_type, linknx_disp_name }                                            # 
+   obj_ids:          [list of _obid_ using this group address],
+   ha:               {address_type: '...' } # set by specific code, HA parameter for address
   },...
  },
  ob:{
@@ -169,14 +169,19 @@ Make sure that the project file is not password protected.
    type:   "ETS function type, see below",
    floor:  "from ETS",
    room:   "from ETS",
-   ga:     [list of _gaid_ included in this object],
-   custom: {custom values set by specific code: ha_init, ha_type}
+   ga_ids: [list of _gaid_ included in this object],
+   ha:     {domain: '...', ha parameters... } # set by specific code, HA parameters
   },...
  }
 }
 ```
 
-* the custom specific code is called giving an opportunity to modify this structure
+* for HA, a default mapping is proposed in methods:
+  
+  * `map_ets_datapoint_to_ha_address_type` : default value for `ga[:ha][:address_type]`
+  * `map_ets_function_to_ha_object_category` : default value for `ob[:ha][:domain]`
+
+* the custom specific code is called giving an opportunity to modify this structure, remaining elements in `ob[:ha]` are used to initialize the HA object.
 
 * Eventually, the HA configuration is generated
 
@@ -224,14 +229,13 @@ But if the convention is to place `ON/OFF` in `1/x/x` then you can use the first
 The specific code can modify the analyzed structure:
 
 * It can delete objects, or create objects.
-* It can add fields in the `:custom` properties:
+* It can add fields in the `:ha` properties:
 
   * in `ga`:
-    * `ha_address_type` : define the use for the group address
-    * `linknx_disp_name` : set the description of group address in `linknx`
+    * `address_type` : define the use for the group address, e.g. `address`, `state_address`, etc...
   * in `ob`:
-    * `ha_type` : force the entity type in HA (switch, light, etc.)
-    * `ha_init` : initialize the HA object with some values
+    * `domain` : set the entity type in HA (`switch`, `light`, etc), this key is then removed from the `Hash`
+    * **Other fields** : initialize the HA object with these values, e.g. `name`
 
 The function can use any information such as fields of the object, or description or name of group address for that.
 

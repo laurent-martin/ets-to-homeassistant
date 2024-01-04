@@ -1,26 +1,25 @@
 # frozen_string_literal: true
 
-def fix_objects(obj)
-  # group addresses
-  group_addresses = obj.data[:ga]
-  # objects
-  objects = obj.data[:ob]
+def fix_objects(generator)
   # generate new objects sequentially
   new_object_id = 0
   # loop on group addresses
-  group_addresses.each do |id, ga|
+  generator.all_ga_ids.each do |ga_id|
+    ga_data = generator.group_address_data(ga_id)
     # group address already assigned to an object
-    next unless ga[:objs].empty?
+    next unless ga_data[:obj_ids].empty?
 
     # generate a dummy object with a single group address
-    objects[new_object_id] = {
-      name:   ga[:name],
-      type:   :custom, # unknown, so assume just switch
-      ga:     [id],
-      floor:  'unknown floor',
-      room:   'unknown room',
-      custom: { ha_type: 'switch' } # custom values
-    }
+    generator.add_object(
+      new_object_id, {
+        name:  ga_data[:name],
+        type:  :custom, # unknown, so assume just switch
+        floor: 'unknown floor',
+        room:  'unknown room',
+        ha:    { domain: 'switch' }
+      }
+    )
+    generator.associate(ga_id: ga_id, object_id: new_object_id)
     # prepare next object identifier
     new_object_id += 1
   end

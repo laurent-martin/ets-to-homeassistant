@@ -26,6 +26,7 @@ opts = GetoptLong.new(
   ['--help', '-h', GetoptLong::NO_ARGUMENT],
   ['--format', '-f', GetoptLong::REQUIRED_ARGUMENT],
   ['--ha-knx', '-k', GetoptLong::NO_ARGUMENT],
+  ['--sort-by-name', '-r', GetoptLong::NO_ARGUMENT],
   ['--full-name', '-n', GetoptLong::NO_ARGUMENT],
   ['--fix', '-s', GetoptLong::REQUIRED_ARGUMENT],
   ['--trace', '-t', GetoptLong::REQUIRED_ARGUMENT],
@@ -39,7 +40,7 @@ opts.each do |opt, arg|
   case opt
   when '--help'
     puts <<-END_OF_MANUAL
-            Usage: #{$PROGRAM_NAME} [--format format] [--fix myfunction.rb] [--addr addr] [--trace trace] [--ha-knx] [--full-name] <ets project file>.knxproj
+            Usage: #{$PROGRAM_NAME} [options] <ets project file>.knxproj
 
             -h, --help:
               show help
@@ -56,8 +57,11 @@ opts.each do |opt, arg|
             --trace [trace]:
               one of debug, info, warn, error
 
-            --ha-knx:
+              --ha-knx:
               include level knx in output file
+
+              --sort-by-name:
+              sort arrays by name
 
             --full-name:
               add room name in object name
@@ -70,6 +74,8 @@ opts.each do |opt, arg|
     raise "Error: no such output format: #{output_format}" unless gene_formats.include?(output_format)
   when '--ha-knx'
     options[:ha_knx] = true
+  when '--sort-by-name'
+    options[:sort_by_name] = true
   when '--full-name'
     options[:full_name] = true
   when '--trace'

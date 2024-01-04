@@ -19,7 +19,7 @@ module EtsToHass
       TwoLevel:   ->(a) { [(a >> 11) & 31, a & 2047].join('/') },
       ThreeLevel: ->(a) { [(a >> 11) & 31, (a >> 8) & 7, a & 255].join('/') }
     }.freeze
-    # KNX functions described in knx_master.xml in project file.
+    # KNX functions described in knx_master.xml in project file, in <FunctionTypes>
     # map index parsed from "FT-x" to recognizable identifier
     ETS_FUNCTIONS_INDEX_TO_NAME =
       %i[custom switchable_light dimmable_light sun_protection heating_radiator heating_floor
@@ -54,8 +54,6 @@ module EtsToHass
         defined?(fix_objects).eql?('method')
       end
     end
-
-    attr_reader :data
 
     def initialize(file, options = {})
       # command line options
@@ -133,8 +131,8 @@ module EtsToHass
         description: group_address['Description'].freeze, # ETS: description field
         address:     parse_group_address(group_address['Address']), # group address as string. e.g. "x/y/z" depending on project style
         datapoint:   nil, # datapoint type as string "x.00y"
-        objs:        [], # objects ids, it may be in multiple objects
-        custom:      {} # prepared to be potentially modified by specific code
+        obj_ids:     [], # objects ids, it may be in multiple objects
+        ha:          { address_type: nil } # prepared to be potentially modified by specific code
       }
       if group_address['DatapointType'].nil?
         warning(group[:address], group[:name], 'no datapoint type for address group, to be defined in ETS, skipping')
@@ -156,15 +154,16 @@ module EtsToHass
 
     # process locations recursively, and find functions
     # @param space the current space
+    # @param space_type the type of space: Space or BuildingPart
     # @param info current location information: floor, room
     def process_space(space, space_type, info = nil)
-      @logger.debug(">sname>#{space['Type']}: #{space['Name']}")
-      @logger.debug(">space>#{space}")
       info = info.nil? ? {} : info.dup
+      @logger.debug("space: #{space['Type']}: #{space['Name']} (#{info})")
       # process building sub spaces
       if space.key?(space_type)
         # get floor when we have it
         info[:floor] = space['Name'] if space['Type'].eql?('Floor')
+        # recursively process sub-spaces
         space[space_type].each { |s| process_space(s, space_type, info) }
       end
       # Functions are objects
@@ -173,28 +172,28 @@ module EtsToHass
       # we assume the object is directly in the room
       info[:room] = space['Name']
       # loop on group addresses
-      space['Function'].each do |f|
-        @logger.debug("function #{f}")
+      space['Function'].each do |ets_function|
+        # @logger.debug("function #{ets_function}")
         # ignore functions without group address
-        next unless f.key?('GroupAddressRef')
+        next unless ets_function.key?('GroupAddressRef')
 
-        # the object
-        o = {
-          name:   f['Name'].freeze,
-          type:   self.class.function_type_to_name(f['Type']),
-          ga:     f['GroupAddressRef'].map { |g| g['RefId'].freeze },
-          custom: {} # custom values
+        # the ETS object, created from ETS function
+        ets_object = {
+          name: ets_function['Name'].freeze,
+          type: self.class.function_type_to_name(ets_function['Type']),
+          ha:   { domain: nil } # hone assistant values
         }.merge(info)
-        # store reference to this object in the GAs
-        o[:ga].each { |g| @data[:ga][g][:objs].push(f['Id']) if @data[:ga].key?(g) }
-        @logger.debug("function: #{o}")
-        @data[:ob][f['Id']] = o.freeze
+        add_object(ets_function['Id'], ets_object)
+        ets_function['GroupAddressRef'].map { |g| g['RefId'].freeze }.each do |group_address_reference|
+          associate(ga_id: group_address_reference, object_id: ets_function['Id'])
+        end
+        @logger.debug("function: #{ets_object}")
       end
     end
 
     # map ETS function to home assistant object type
     # see https://www.home-assistant.io/integrations/knx/
-    def map_ets_function_to_ha_type(ets_func)
+    def map_ets_function_to_ha_object_category(ets_func)
       # map FT-x type to home assistant type
       case ets_func[:type]
       when :switchable_light, :dimmable_light then 'light'
@@ -209,28 +208,71 @@ module EtsToHass
 
     # map datapoint to home assistant type
     # see https://www.home-assistant.io/integrations/knx/
-    def map_ets_datapoint_to_ha_type(group_address, ha_obj_type)
+    def map_ets_datapoint_to_ha_address_type(group_address, ha_object_domain)
       case group_address[:datapoint]
       when '1.001' then 'address' # switch on/off or state
       when '1.008' then 'move_long_address' # up/down
       when '1.010' then 'stop_address' # stop
       when '1.011' then 'state_address' # switch state
       when '3.007'
-        @logger.debug("#{group_address[:address]}(#{ha_obj_type}:#{group_address[:datapoint]}:#{group_address[:name]}): ignoring datapoint")
+        @logger.debug("#{group_address[:address]}(#{ha_object_domain}:#{group_address[:datapoint]}:#{group_address[:name]}): ignoring datapoint")
         nil # dimming control: used by buttons
       when '5.001' # percentage 0-100
-        # custom code tells what is state
-        case ha_obj_type
+        # user-provided code tells what is state
+        case ha_object_domain
         when 'light' then 'brightness_address'
         when 'cover' then 'position_address'
         else
-          warning(group_address[:address], group_address[:name], "#{group_address[:datapoint]} expects: light or cover, not #{ha_obj_type.magenta}")
+          warning(group_address[:address], group_address[:name], "#{group_address[:datapoint]} expects: light or cover, not #{ha_object_domain.magenta}")
           nil
         end
       else
-        warning(group_address[:address], group_address[:name], "un-managed datapoint #{group_address[:datapoint].blue} (#{ha_obj_type.magenta})")
+        warning(group_address[:address], group_address[:name], "un-managed datapoint #{group_address[:datapoint].blue} (#{ha_object_domain.magenta})")
         nil
       end
+    end
+
+    # @param ga_id group address id
+    # @returns array of objects for this group id
+    def ga_object_ids(ga_id)
+      @data[:ga][ga_id][:obj_ids]
+    end
+
+    def all_object_ids
+      @data[:ob].keys
+    end
+
+    # @param object_id object id
+    # @returns array of group addresses for this object
+    def object_ga_ids(object_id)
+      @data[:ob][object_id][:ga_ids]
+    end
+
+    def all_ga_ids
+      @data[:ga].keys
+    end
+
+    def associate(ga_id:, object_id:)
+      @data[:ga][ga_id][:obj_ids].push(object_id)
+      @data[:ob][object_id][:ga_ids].push(ga_id)
+    end
+
+    def delete_object(object_id)
+      @data[:ob].delete(object_id)
+    end
+
+    def add_object(object_id, object)
+      object[:ga_ids] = []
+      # objects will not be modified, this shall be what comes from ETS only, use field `ha` for specific code
+      @data[:ob][object_id] = object.freeze
+    end
+
+    def object(object_id)
+      @data[:ob][object_id]
+    end
+
+    def group_address_data(ga_id)
+      @data[:ga][ga_id]
     end
 
     # This creates the Home Assistant configuration in variable ha_config
@@ -245,59 +287,68 @@ module EtsToHass
       # This will be the YAML for HA
       ha_config = {}
       # warn of group addresses that will not be used (you can fix in specific code)
-      @data[:ga].values.select { |ga| ga[:objs].empty? }.each do |ga|
-        warning(ga[:address], ga[:name],
+      @data[:ga].values.select { |ga_data| ga_data[:obj_ids].empty? }.each do |ga_data|
+        warning(ga_data[:address], ga_data[:name],
                 'Group not in object: use ETS to create functions or use specific code')
       end
       # Generate devices from either functions in ETS, or from specific code
-      @data[:ob].each_value do |o|
-        # HA configuration object, either empty or from specific code
-        ha_device = o[:custom].key?(:ha_init) ? o[:custom][:ha_init] : {}
-        # default name
-        ha_device['name'] = @opts[:full_name] ? "#{o[:name]} #{o[:room]}" : o[:name] unless ha_device.key?('name')
-        # compute object type, this is the section in HA configuration (switch, light, etc...)
-        ha_obj_type = o[:custom][:ha_type] || map_ets_function_to_ha_type(o)
-        if ha_obj_type.nil?
-          warning(o[:name], o[:room], "function type not detected #{o[:type].to_s.blue}")
+      @data[:ob].each_value do |ets_object|
+        # compute object domain, this is the section in HA configuration (switch, light, etc...)
+        ha_object_domain = ets_object[:ha].delete(:domain) || map_ets_function_to_ha_object_category(ets_object)
+        if ha_object_domain.nil?
+          warning(ets_object[:name], ets_object[:room], "#{ets_object[:type].to_s.blue}: function type not detected, skipping")
           next
         end
-        # process all group addresses in function
-        o[:ga].each do |group_address_reference|
+        # add domain to config, if necessary
+        ha_config[ha_object_domain] ||= []
+        # HA configuration object, either empty or initialized in specific code
+        ha_device = ets_object[:ha]
+        # default name
+        ha_device['name'] ||= @opts[:full_name] ? "#{ets_object[:name]} #{ets_object[:room]}" : ets_object[:name]
+        # check name is not duplicated, as name is used to identify the object
+        @logger.warn("#{ha_device['name'].red} object name is duplicated") if ha_config[ha_object_domain].any? { |v| v['name'].casecmp?(ha_device['name']) }
+        # add object to configuration
+        ha_config[ha_object_domain].push(ha_device)
+        # process all group addresses in ETS function (object)
+        ets_object[:ga_ids].each do |group_address_reference|
           # get this group information
-          ga = @data[:ga][group_address_reference]
-          if ga.nil?
-            @logger.error("#{o[:name].red} #{o[:room].green} (#{o[:type].to_s.magenta}) group address #{group_address_reference} not found, skipping")
+          ga_data = @data[:ga][group_address_reference]
+          if ga_data.nil?
+            @logger.error("#{ets_object[:name].red} #{ets_object[:room].green} (#{ets_object[:type].to_s.magenta}): #{group_address_reference}: group address not found, skipping")
             next
           end
-          # find property name based on datapoint
-          ha_address_type = ga[:custom][:ha_address_type] || map_ets_datapoint_to_ha_type(ga, ha_obj_type)
+          # find HA property name based on datapoint
+          ha_address_type = ga_data[:ha][:address_type] || map_ets_datapoint_to_ha_address_type(ga_data, ha_object_domain)
+          next if ha_address_type.eql?(:ignore)
           if ha_address_type.nil?
-            warning(ga[:address], ga[:name],
-                    "address type not detected #{ga[:datapoint].blue} / #{ha_obj_type.magenta}, skipping")
+            warning(ga_data[:address], ga_data[:name],
+                    "#{ga_data[:datapoint].blue} / #{ha_object_domain.magenta}: address type not detected, skipping")
             next
           end
           if ha_device.key?(ha_address_type)
-            @logger.error("#{ga[:address].red} #{ga[:name].green} (#{ha_obj_type.magenta}:#{ga[:datapoint]}) #{ha_address_type} already set with #{ha_device[ha_address_type]}, skipping")
+            @logger.error("#{ga_data[:address].red} #{ga_data[:name].green} (#{ha_object_domain.magenta}:#{ga_data[:datapoint]}) #{ha_address_type} already set with #{ha_device[ha_address_type]}, skipping")
+            # TODO: support passive addresses ?
             next
           end
-          ha_device[ha_address_type] = ga[:address]
+          # ok, we have the property name and group address
+          ha_device[ha_address_type] = ga_data[:address]
         end
-        ha_config[ha_obj_type] = [] unless ha_config.key?(ha_obj_type)
-        # check name is not duplicated, as name is used to identify the object
-        @logger.warn("#{ha_device['name'].red} object name is duplicated") if ha_config[ha_obj_type].any? { |v| v['name'].casecmp?(ha_device['name']) }
-        ha_config[ha_obj_type].push(ha_device)
       end
-      return { 'knx' => ha_config }.to_yaml if @opts[:ha_knx]
-
+      if @opts[:sort_by_name]
+        @logger.info('Sorting by name')
+        ha_config.each_value { |v| v.sort_by! { |o| o['name'] } }
+      end
+      # add knx level, if user asks for it
+      ha_config = { 'knx' => ha_config } if @opts[:ha_knx]
       ha_config.to_yaml
     end
 
     # https://sourceforge.net/p/linknx/wiki/Object_Definition_section/
     def generate_linknx
-      @data[:ga].values.sort { |a, b| a[:address] <=> b[:address] }.map do |ga|
-        linknx_name = ga[:custom][:linknx_name] || ga[:name]
-        %Q(        <object type="#{ga[:datapoint]}" id="id_#{ga[:address].gsub('/',
-                                                                               '_')}" gad="#{ga[:address]}" init="request">#{linknx_name}</object>)
+      @data[:ga].values.sort { |a, b| a[:address] <=> b[:address] }.map do |ga_data|
+        linknx_name = ga_data[:name]
+        linknx_id = "id_#{ga_data[:address].gsub('/', '_')}"
+        %Q(        <object type="#{ga_data[:datapoint]}" id="#{linknx_id}" gad="#{ga_data[:address]}" init="request">#{linknx_name}</object>)
       end.join("\n")
     end
   end

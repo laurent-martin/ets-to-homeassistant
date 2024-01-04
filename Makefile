@@ -179,10 +179,11 @@ tidy:
 ETS_FILE=private/laurent/Beverly Mai - Maison.knxproj
 CODE=$(DIR_LIB)ets_to_hass/specific/
 SPECIAL=$(CODE)laurent.rb
+# --sort-by-name 
 laurent:
-	$(CLI_PATH) --format homeass --fix $(SPECIAL) --full-name "$(ETS_FILE)" --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(HA_EXT)|')"
+	$(CLI_PATH) --format homeass --full-name --fix $(SPECIAL) --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(HA_EXT)|')" "$(ETS_FILE)"
 laurent2:
-	$(CLI_PATH) --format linknx  --fix $(SPECIAL) "$(ETS_FILE)" --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(LK_EXT)|')"
+	$(CLI_PATH) --format linknx  --fix $(SPECIAL) --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(LK_EXT)|')" "$(ETS_FILE)"
 clean::
 	rm -f *$(HA_EXT) *$(LK_EXT) *$(XK_EXT)
 test: unsigned_gem

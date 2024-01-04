@@ -2,56 +2,55 @@
 
 # This example of custom method uses group address description to figure out devices
 PREFIX = {
-  'ECL_On/Off '      => { ha_address_type: 'address', ha_type: 'light' },
-  # 'ECL_VAL ' => {ha_address_type: 'todo1',ha_type: 'light'},
-  # 'État_ECL_VAL ' => {ha_address_type: 'todo2',ha_type: 'light'},
-  'État_ECL_On/Off ' => { ha_address_type: 'state_address', ha_type: 'light' },
-  'ECL_VAR '         => { ha_address_type: 'brightness_address', ha_type: 'light' },
-  'Pos._VR_% '       => { ha_address_type: 'position_address', ha_type: 'cover' },
-  'M/D_VR '          => { ha_address_type: 'move_long_address', ha_type: 'cover' }
-  # 'État_Pos._VR_% ' => {ha_address_type: 'todo',ha_type: 'cover'},
-  # 'T°_Amb.  ' => {ha_address_type: 'type4',ha_type: 'light'},
-  # 'Dét._Prés. ' => {ha_address_type: 'type4',ha_type: 'light'},
+  'ECL_On/Off '      => { address_type: 'address', domain: 'light' },
+  # 'ECL_VAL ' => {address_type: 'todo1',domain: 'light'},
+  # 'État_ECL_VAL ' => {address_type: 'todo2',domain: 'light'},
+  'État_ECL_On/Off ' => { address_type: 'state_address', domain: 'light' },
+  'ECL_VAR '         => { address_type: 'brightness_address', domain: 'light' },
+  'Pos._VR_% '       => { address_type: 'position_address', domain: 'cover' },
+  'M/D_VR '          => { address_type: 'move_long_address', domain: 'cover' }
+  # 'État_Pos._VR_% ' => {address_type: 'todo',domain: 'cover'},
+  # 'T°_Amb.  ' => {address_type: 'type4',domain: 'light'},
+  # 'Dét._Prés. ' => {address_type: 'type4',domain: 'light'},
 }.freeze
 
 # generate
-def fix_objects(obj)
-  group_addresses = obj.data[:ga]
-  objects = obj.data[:ob]
+def fix_objects(generator)
   # loop on group addresses
-  group_addresses.each do |gaid, ga|
+  generator.all_ga_ids.each do |ga_id|
+    ga_data = generator.group_address_data(ga_id)
     # ignore if the group address is already in an object
-    next unless ga[:objs].empty?
+    next unless ga_data[:obj_ids].empty?
 
     obj_name = nil
-    ha_type = nil
+    object_domain = nil
     # try to guess an object name from group address name
     PREFIX.each do |prefix, info|
-      next unless ga[:name].start_with?(prefix)
-      obj_name = ga[:name][prefix.length..]
-      ga[:custom][:ha_address_type] = info[:ha_address_type]
-      ha_type = info[:ha_type]
+      next unless ga_data[:name].start_with?(prefix)
+      obj_name = ga_data[:name][prefix.length..]
+      ga_data[:ha][:address_type] = info[:address_type]
+      object_domain = info[:domain]
       break
     end
     if obj_name.nil?
-      warn("unknown:#{ga}")
+      warn("unknown:#{ga_data}")
       next
     end
 
     # is this an existing object ?
-    objid = obj_name
-    object = objects[objid]
-    if object.nil?
-      object = objects[objid] = {
-        name:   obj_name,
-        type:   :custom, # unknown, so assume just switch
-        ga:     [],
-        floor:  'unknown floor',
-        room:   'unknown room',
-        custom: { ha_type: ha_type } # custom values
-      }
+    obj_id = obj_name
+
+    if generator.object(obj_id).nil?
+      generator.add_object(
+        obj_id, {
+          name:  obj_name,
+          type:  :custom, # unknown, so assume just switch
+          floor: 'unknown floor',
+          room:  'unknown room',
+          ha:    { domain: object_domain }
+        }
+      )
     end
-    object[:ga].push(gaid)
-    ga[:objs].push(objid)
+    generator.associate(ga_id: ga_id, object_id: obj_id)
   end
 end
