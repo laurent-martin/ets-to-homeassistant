@@ -150,8 +150,8 @@ Make sure that the project file is not password protected.
   _gaid_ => {
    name:             "from ETS",
    description:      "from ETS",
-   address:          group address as string. e.g. "x/y/z" depending on project style,
-   datapoint:        datapoint type as string "x.abc", e.g. 1.001,
+   address:          "x/y/z", # group address
+   datapoint:        "x.abc", # datapoint type, e.g. 1.001,
    ha:               {address_type: '...' } # set by specific code, HA parameter for address
   },...
 }

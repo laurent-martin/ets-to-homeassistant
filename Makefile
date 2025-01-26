@@ -181,7 +181,7 @@ CODE=$(DIR_LIB)ets_to_hass/specific/
 SPECIAL=$(CODE)laurent.rb
 # --sort-by-name 
 laurent:
-	$(CLI_PATH) --format homeass --full-name --fix $(SPECIAL) --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(HA_EXT)|')" "$(ETS_FILE)"
+	$(CLI_PATH) --format homeass --fix $(SPECIAL) --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(HA_EXT)|')" "$(ETS_FILE)" --full-name
 laurent2:
 	$(CLI_PATH) --format linknx  --fix $(SPECIAL) --output "$$(echo "$(ETS_FILE)" | sed 's|$(ETS_EXT)$$|$(LK_EXT)|')" "$(ETS_FILE)"
 clean::
@@ -189,5 +189,5 @@ clean::
 test: unsigned_gem
 	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style1.knxproj
 	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style2.knxproj
-	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style3.knxproj
+	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style3.knxproj --comment-skipped
 	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style3.knxproj --addr Free

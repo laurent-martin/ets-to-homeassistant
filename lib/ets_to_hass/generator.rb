@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'ets_to_hass/string_colors'
+require 'ets_to_hass/info'
 require 'zip'
 require 'xmlsimple'
 require 'yaml'
@@ -8,8 +10,6 @@ require 'logger'
 require 'fileutils'
 require 'openssl'
 require 'base64'
-require 'ets_to_hass/string_colors'
-require 'ets_to_hass/info'
 
 module EtsToHass
   # Import ETS project file and generate configuration for Home Assistant and KNXWeb
@@ -32,6 +32,21 @@ module EtsToHass
 
     # class methods
     class << self
+      # Generate ETS6 password from user password
+      # @param password user password, as entered in ETS
+      # @return ETS6 password, encrypted, as used in ZIP file
+      def ets6_zip_password(password)
+        Base64.strict_encode64(
+          OpenSSL::PKCS5.pbkdf2_hmac(
+            password.encode('utf-16le'),
+            '21.project.ets.knx.org',
+            65_536,
+            32,
+            OpenSSL::Digest.new('sha256')
+          )
+        )
+      end
+
       # helper function to dig through keys, knowing that we used ForceArray
       def dig_xml(entry_point, path)
         raise "ERROR: wrong entry point: #{entry_point.class}, expect Hash" unless entry_point.is_a?(Hash)
@@ -41,7 +56,7 @@ module EtsToHass
 
           entry_point = entry_point[n]
           # because we use ForceArray
-          entry_point = entry_point.first
+          # entry_point = entry_point.first
           raise "ERROR: expect array with one element in #{n}" if entry_point.nil?
         end
         entry_point
@@ -106,21 +121,10 @@ module EtsToHass
     end
 
     # format the integer group address to string in desired style (e.g. 1/2/3)
-    def parse_group_address(group_address)
-      GROUP_ADDRESS_PARSERS[@group_addr_style].call(group_address.to_i).freeze
-    end
-
-    # Generate ETS6 password from user password
-    def ets6_zip_password(password)
-      Base64.strict_encode64(
-        OpenSSL::PKCS5.pbkdf2_hmac(
-          password.encode('utf-16le'),
-          '21.project.ets.knx.org',
-          65_536,
-          32,
-          OpenSSL::Digest.new('sha256')
-        )
-      )
+    # @param group_address_int integer group address
+    # @return string representation of group address
+    def parse_group_address(group_address_int)
+      GROUP_ADDRESS_PARSERS[@group_addr_style].call(group_address_int.to_i)
     end
 
     # Read both project.xml and 0.xml
@@ -136,12 +140,12 @@ module EtsToHass
             project_id = Regexp.last_match(1)
             raise 'Second project found, but only one is supported' unless @project_id.nil? || @project_id.eql?(project_id)
             @project_id = project_id
-            project[:info] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => true })
+            project[:info] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => false })
           when %r{(P-[^/]+)/0\.xml$}
             project_id = Regexp.last_match(1)
             raise 'Second project found, but only one is supported' unless @project_id.nil? || @project_id.eql?(project_id)
             @project_id = project_id
-            project[:data] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => true })
+            project[:data] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => %w[Space Function GroupAddressRef GroupRange GroupAddress] })
           when /(P-[^.]+)\.zip$/
             project_id = Regexp.last_match(1)
             raise 'Second project found, but only one is supported' unless @project_id.nil? || @project_id.eql?(project_id)
@@ -169,34 +173,34 @@ module EtsToHass
     # process group range recursively and find addresses
     def process_group_ranges(group)
       group['GroupRange'].each { |sgr| process_group_ranges(sgr) } if group.key?('GroupRange')
-      group['GroupAddress'].each { |group_address| process_ga(group_address) } if group.key?('GroupAddress')
+      group['GroupAddress'].each { |group_address_info| process_ga(group_address_info) } if group.key?('GroupAddress')
     end
 
     # process a group address
-    def process_ga(group_address)
+    def process_ga(group_address_info)
       # build object for each group address
       group = {
-        name:        group_address['Name'].freeze, # ETS: name field
-        description: group_address['Description'].freeze, # ETS: description field
-        address:     parse_group_address(group_address['Address']), # group address as string. e.g. "x/y/z" depending on project style
+        name:        group_address_info['Name'], # ETS: name field
+        description: group_address_info['Description'], # ETS: description field
+        address:     parse_group_address(group_address_info['Address']), # group address as string. e.g. "x/y/z" depending on project style
         datapoint:   nil, # datapoint type as string "x.00y"
         ha:          { address_type: nil } # prepared to be potentially modified by specific code
       }
-      if group_address['DatapointType'].nil?
+      if group_address_info['DatapointType'].nil?
         warning(group[:address], group[:name], 'no datapoint type for address group, to be defined in ETS, skipping')
         return
       end
       # parse datapoint for easier use
-      if (m = group_address['DatapointType'].match(/^DPST-([0-9]+)-([0-9]+)$/))
+      if (m = group_address_info['DatapointType'].match(/^DPST-([0-9]+)-([0-9]+)$/))
         # datapoint type as string x.00y
         group[:datapoint] = format('%d.%03d', m[1].to_i, m[2].to_i) # no freeze
       else
         warning(group[:address], group[:name],
-                "Cannot parse data point type: #{group_address['DatapointType']} (DPST-x-x), skipping")
+                "Cannot parse data point type: #{group_address_info['DatapointType']} (DPST-x-x), skipping")
         return
       end
       # Index is the internal Id in xml file
-      @group_addresses[group_address['Id'].freeze] = group.freeze
+      @group_addresses[group_address_info['Id']] = group.freeze
       @logger.debug("group: #{group}")
     end
 
@@ -227,12 +231,12 @@ module EtsToHass
 
         # the ETS object, created from ETS function
         ets_object = {
-          name: ets_function['Name'].freeze,
+          name: ets_function['Name'],
           type: self.class.function_type_to_name(ets_function['Type']),
           ha:   { domain: nil } # hone assistant values
         }.merge(info)
         add_object(ets_function['Id'], ets_object)
-        ets_function['GroupAddressRef'].map { |g| g['RefId'].freeze }.each do |group_address_id|
+        ets_function['GroupAddressRef'].map { |g| g['RefId'] }.each do |group_address_id|
           associate(ga_id: group_address_id, object_id: ets_function['Id'])
         end
         @logger.debug("function: #{ets_object}")
@@ -256,26 +260,28 @@ module EtsToHass
 
     # map datapoint to home assistant type
     # see https://www.home-assistant.io/integrations/knx/
-    def map_ets_datapoint_to_ha_address_type(group_address, ha_object_domain)
-      case group_address[:datapoint]
+    # @param domain the domain of the object (light, cover, etc...)
+    # @param address the group address data
+    def map_ets_datapoint_to_ha_address_type(domain:, address:)
+      case address[:datapoint]
       when '1.001' then 'address' # switch on/off or state
       when '1.008' then 'move_long_address' # up/down
       when '1.010' then 'stop_address' # stop
       when '1.011' then 'state_address' # switch state
       when '3.007'
-        @logger.debug("#{group_address[:address]}(#{ha_object_domain}:#{group_address[:datapoint]}:#{group_address[:name]}): ignoring datapoint")
+        @logger.debug("#{address[:address]}(#{domain}:#{address[:datapoint]}:#{address[:name]}): ignoring datapoint")
         nil # dimming control: used by buttons
       when '5.001' # percentage 0-100
         # user-provided code tells what is state
-        case ha_object_domain
+        case domain
         when 'light' then 'brightness_address'
         when 'cover' then 'position_address'
         else
-          warning(group_address[:address], group_address[:name], "#{group_address[:datapoint]} expects: light or cover, not #{ha_object_domain.magenta}")
+          warning(address[:address], address[:name], "#{address[:datapoint]} expects: light or cover, not #{domain.magenta}")
           nil
         end
       else
-        warning(group_address[:address], group_address[:name], "un-managed datapoint #{group_address[:datapoint].blue} (#{ha_object_domain.magenta})")
+        warning(address[:address], address[:name], "un-managed datapoint #{address[:datapoint].blue} (#{domain.magenta})")
         nil
       end
     end
@@ -371,7 +377,7 @@ module EtsToHass
             next
           end
           # find HA property name based on datapoint
-          ha_address_type = ga_data[:ha][:address_type] || map_ets_datapoint_to_ha_address_type(ga_data, ha_object_domain)
+          ha_address_type = ga_data[:ha][:address_type] || map_ets_datapoint_to_ha_address_type(address: ga_data, domain: ha_object_domain)
           next if ha_address_type.eql?(:ignore)
           if ha_address_type.nil?
             warning(ga_data[:address], ga_data[:name],
