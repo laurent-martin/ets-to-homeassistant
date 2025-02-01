@@ -2,7 +2,6 @@
 
 require 'ets_to_hass/string_colors'
 require 'ets_to_hass/info'
-require 'zip'
 require 'xmlsimple'
 require 'yaml'
 require 'json'
@@ -10,6 +9,9 @@ require 'logger'
 require 'fileutils'
 require 'openssl'
 require 'base64'
+require 'stringio'
+$LOAD_PATH.unshift(File.join(File.dirname(__dir__), 'rubyzip_aes', 'lib'))
+require 'zip'
 
 module EtsToHass
   # Import ETS project file and generate configuration for Home Assistant and KNXWeb
@@ -131,41 +133,50 @@ module EtsToHass
     # @return Hash {info: xml data, data: xml data}
     def read_file(file)
       raise "ETS file must end with #{ETS_EXT}" unless file.end_with?(ETS_EXT)
-      project = {}
+      projects = {}
       # read ETS5 file and get project file
       Zip::File.open(file) do |zip_file|
         zip_file.each do |entry|
+          puts(">ok>> #{entry.name}")
           case entry.name
-          when %r{(P-[^/]+)/project\.xml$}
+          when /^(P-[^.]+)\.signature$/
             project_id = Regexp.last_match(1)
-            raise 'Second project found, but only one is supported' unless @project_id.nil? || @project_id.eql?(project_id)
-            @project_id = project_id
+            project = (projects[project_id] ||= {})
+          when %r{^(P-[^/]+)/project\.xml$}
+            project_id = Regexp.last_match(1)
+            project = (projects[project_id] ||= {})
             project[:info] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => false })
-          when %r{(P-[^/]+)/0\.xml$}
+          when %r{^(P-[^/]+)/0\.xml$}
             project_id = Regexp.last_match(1)
-            raise 'Second project found, but only one is supported' unless @project_id.nil? || @project_id.eql?(project_id)
-            @project_id = project_id
+            project = (projects[project_id] ||= {})
             project[:data] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => %w[Space Function GroupAddressRef GroupRange GroupAddress] })
-          when /(P-[^.]+)\.zip$/
+          when /^(P-[^.]+)\.zip$/
+            raise 'Password protected project, provide option password.' unless @opts[:password]
             project_id = Regexp.last_match(1)
-            raise 'Second project found, but only one is supported' unless @project_id.nil? || @project_id.eql?(project_id)
-            @project_id = project_id
-            raise 'Password protected project.' unless @opts[:password]
-            raise 'Password protected project not supported yet.'
-            # ets6_pass = ets6_zip_password(@opts[:password])
-            # data = entry.get_input_stream.read
-            # Zip::File.open_buffer(data) do |inner_zip_file|
-            #  # Iterate through each entry in the inner zip file
-            #  inner_zip_file.each do |inner_entry|
-            #    # Extract each entry to the specified extract path
-            #    puts(">>> #{inner_entry.name}")
-            #    inner_entry.get_input_stream.read
-            #  end
-            # end
+            project = (projects[project_id] ||= {})
+            ets6_pass = self.class.ets6_zip_password(@opts[:password])
+            data = entry.get_input_stream.read
+            Zip::InputStream.open(
+              StringIO.new(data),
+              decrypter: Zip::AESDecrypter.new(ets6_pass, Zip::AESEncryption::STRENGTH_256_BIT)
+            ) do |zis|
+              while inner_entry = zis.get_next_entry
+                case inner_entry.name
+                when /^project\.xml$/
+                  project[:info] = XmlSimple.xml_in(zis.read, { 'ForceArray' => false })
+                when /^0\.xml$/
+                  project[:data] = XmlSimple.xml_in(zis.read, { 'ForceArray' => %w[Space Function GroupAddressRef GroupRange GroupAddress] })
+                end
+              end
+            end
           end
         end
       end
-      raise "Did not find project information or data (#{project.keys})" unless project.keys.sort.eql?(%i[data info])
+      projects.each do |k, v|
+        raise "Missing project.xml or 0.xml in #{k} (#{v.keys})" unless v.keys.sort.eql?(%i[data info])
+      end
+      raise 'Found more than 1 project.' unless projects.keys.length.eql?(1)
+      @project_id, project = projects.first
       @logger.info("Project: #{@project_id} found")
       project
     end

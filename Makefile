@@ -191,3 +191,4 @@ test: unsigned_gem
 	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style2.knxproj
 	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style3.knxproj --comment-skipped
 	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style3.knxproj --addr Free
+	$(CLI_PATH) $(DIR_SAMPLES)/encrypted_pass_a.knxproj --password=a
