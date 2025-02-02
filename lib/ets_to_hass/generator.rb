@@ -10,6 +10,9 @@ require 'fileutils'
 require 'openssl'
 require 'base64'
 require 'stringio'
+
+# decryption not yet in rubyzip 3.0
+# once included, remove this and the code in rubyzip_aes
 $LOAD_PATH.unshift(File.join(File.dirname(__dir__), 'rubyzip_aes', 'lib'))
 require 'zip'
 
@@ -137,7 +140,6 @@ module EtsToHass
       # read ETS5 file and get project file
       Zip::File.open(file) do |zip_file|
         zip_file.each do |entry|
-          puts(">ok>> #{entry.name}")
           case entry.name
           when /^(P-[^.]+)\.signature$/
             project_id = Regexp.last_match(1)
