@@ -132,6 +132,16 @@ module EtsToHass
       GROUP_ADDRESS_PARSERS[@group_addr_style].call(group_address_int.to_i)
     end
 
+    def read_project_info(projects, project_id, stream)
+      project = (projects[project_id] ||= {})
+      project[:info] = XmlSimple.xml_in(stream.read, { 'ForceArray' => false })
+    end
+
+    def read_project_data(projects, project_id, stream)
+      project = (projects[project_id] ||= {})
+      project[:data] = XmlSimple.xml_in(stream.read, { 'ForceArray' => %w[Space Function GroupAddressRef GroupRange GroupAddress] })
+    end
+
     # Read both project.xml and 0.xml
     # @return Hash {info: xml data, data: xml data}
     def read_file(file)
@@ -141,43 +151,37 @@ module EtsToHass
       Zip::File.open(file) do |zip_file|
         zip_file.each do |entry|
           case entry.name
-          when /^(P-[^.]+)\.signature$/
-            project_id = Regexp.last_match(1)
-            project = (projects[project_id] ||= {})
+          # when /^(P-[^.]+)\.signature$/
           when %r{^(P-[^/]+)/project\.xml$}
-            project_id = Regexp.last_match(1)
-            project = (projects[project_id] ||= {})
-            project[:info] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => false })
+            read_project_info(projects, Regexp.last_match(1), entry.get_input_stream)
           when %r{^(P-[^/]+)/0\.xml$}
-            project_id = Regexp.last_match(1)
-            project = (projects[project_id] ||= {})
-            project[:data] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => %w[Space Function GroupAddressRef GroupRange GroupAddress] })
+            read_project_data(projects, Regexp.last_match(1), entry.get_input_stream)
           when /^(P-[^.]+)\.zip$/
             raise 'Password protected project, provide option password.' unless @opts[:password]
             project_id = Regexp.last_match(1)
-            project = (projects[project_id] ||= {})
             ets6_pass = self.class.ets6_zip_password(@opts[:password])
             data = entry.get_input_stream.read
             Zip::InputStream.open(
               StringIO.new(data),
               decrypter: Zip::AESDecrypter.new(ets6_pass, Zip::AESEncryption::STRENGTH_256_BIT)
             ) do |zis|
-              while inner_entry = zis.get_next_entry
+              while (inner_entry = zis.get_next_entry)
                 case inner_entry.name
                 when /^project\.xml$/
-                  project[:info] = XmlSimple.xml_in(zis.read, { 'ForceArray' => false })
+                  read_project_info(projects, project_id, zis)
                 when /^0\.xml$/
-                  project[:data] = XmlSimple.xml_in(zis.read, { 'ForceArray' => %w[Space Function GroupAddressRef GroupRange GroupAddress] })
+                  read_project_data(projects, project_id, zis)
                 end
               end
             end
           end
         end
       end
+      raise "Found more than 1 project: #{projects.keys}" unless projects.keys.length.eql?(1)
       projects.each do |k, v|
-        raise "Missing project.xml or 0.xml in #{k} (#{v.keys})" unless v.keys.sort.eql?(%i[data info])
+        raise "project.xml missing for #{k}" unless v.keys.include?(:info)
+        raise "0.xml missing for #{k}" unless v.keys.include?(:data)
       end
-      raise 'Found more than 1 project.' unless projects.keys.length.eql?(1)
       @project_id, project = projects.first
       @logger.info("Project: #{@project_id} found")
       project

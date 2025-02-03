@@ -1,30 +1,32 @@
 # ETS project file to Home Assistant configuration
 
-A Ruby tool to convert an ETS5 project file (`*.knxproj`) into:
+A tool to convert an ETS5 project file (`*.knxproj`) into:
 
 * a YAML configuration file suitable for **Home Assistant** (requires to define building, functions and group data points in ETS)
 * an XML file for `linknx` (the object list only)
 
 [https://www.home-assistant.io/integrations/knx/](https://www.home-assistant.io/integrations/knx/)
 
+> **Important Note:** Please read the important note below.
+
 ## Glossary
 
 * **KNX Group Address**: a group address is a 1, 2 or 3-level address in the KNX system, e.g. `1/2/3`.
 * **KNX Data Point Type**: a data point type is a type of data that can be sent on a group address, e.g. **1.001**, **5.001**.
-* **ETS Building Information**: In ETS, a building is a container for rooms and **ETS Function**.
+* **ETS Building Information**: In ETS, a building is a container for rooms and **ETS Function**. Located in Building panel.
 * **ETS Function** : In ETS, represents an object that has several **KNX Group Address** associated to it.
 * **HA Device** : In Home Assistant, a device has a type (e.g.`light`) and has **HA Config Variable**.
 * **HA Config Variable** : In Home Assistant, it's a property of a device, e.g.`name`,`address`,`state_address`.
 
 ## Important note
 
-In order for the tool to generate result properly read the following.
+In order for this tool to generate result properly read the following.
 
 An actionable entity in KNX is a **KNX Group Address**: commands are exchanged in a group address on the KNX Bus.
 For example a dimmable light has at least one group address for On/Off and another for the dimming value.
 
-An actionable entity in **Home Assistant** is an **HA Device**.
-For example, a dimmable light is a device and has properties, one of them is the group address for On/Off and another is the group address for the dimming value.
+An actionable entity in **Home Assistant** (HA) is an **HA Device**.
+For example, a dimmable KNX light is a device and has properties, one of them is the group address for On/Off and another is the group address for the dimming value.
 
 So, for this tool to work, the following pieces of information must be found:
 
@@ -32,14 +34,15 @@ So, for this tool to work, the following pieces of information must be found:
 * The purpose for each **KNX Group Address** (typically, a **KNX Data Point Type**)
 * Grouping of group addresses into devices : e.g. **ETS Function** in ETS mapped to **HA Device** in Home Assistant
 
-By default, and in fact in a lot of ETS projects, only group addresses are defined as this is sufficient for an installation.
-I.e. no **ETS Function** is defined, and **KNX Data Point Type**s are not defined for group addresses.
+Often, in a lot of ETS projects, only group addresses are defined as this is sufficient for an installation but not for this tool.
+I.e. no **ETS Function** is defined and **KNX Data Point Type**s are not defined for group addresses.
 This is why this tool will not work out of the box most of the times: missing information.
 The next 2 sections explain how to fix this.
+E.g. one has to tell the tool, somehow, this group address is for this light for on/off, and this other group address is for this same light, but for dimming.
 
 ### Group address: Type
 
-**KNX Group Address**es are defined in the ETS project file naturally, as it is the base for the system to work.
+**KNX Group Address**es are necessarily defined in the ETS project file as it is the base for the system to work.
 But we need the types of them (e.g. **on/off** versus **dim value**) in order to create the HA configuration.
 
 The best, easiest and most reliable way for the tool to find the type of **KNX Group Address** is to specify the **KNX Data Point Type** in the **KNX Group Address** itself in ETS.
@@ -47,7 +50,10 @@ This requires editing the KNX project.
 Refer to [Structure in ETS](#structure-in-ets).
 
 Another possibility is to create a custom script.
-Refer to [Custom method](#custom-method)
+Refer to [Custom method](#custom-method).
+
+Another is to specify HA specific information in the description.
+Refer to [HA description](#description-method).
 
 ### Group address: Grouping into devices
 
@@ -57,6 +63,9 @@ Refer to [Structure in ETS](#structure-in-ets).
 
 Another possibility is to create a custom script.
 Refer to [Custom method](#custom-method)
+
+Another is to specify HA specific information in the description.
+Refer to [HA description](#description-method).
 
 ## Installation
 
@@ -83,7 +92,7 @@ Refer to [Custom method](#custom-method)
 General invocation syntax:
 
 ```bash
-Usage: .ets_to_hass [options] <ets project file>.knxproj
+Usage: ets_to_hass [options] <ets project file>.knxproj
 
     -h, --help
       show help
@@ -135,7 +144,7 @@ Logs are sent to STDERR.
 
 The tool takes the exported file from ETS with extension: `knxproj`.
 The project file is a zip with several XML files in it.
-Make sure that the project file is not password protected.
+If the project file is password protected then provide the password using the option.
 
 * The tool parses the first project file found.
 * It extracts **ETS Building Information** and **KNX Group Address**es.
@@ -240,6 +249,10 @@ def fix_objects(generator)
   # use methods of generator to modify the structure
 end
 ```
+
+## Description method
+
+TODO
 
 ## Linknx
 
