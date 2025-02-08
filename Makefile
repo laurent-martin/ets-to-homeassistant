@@ -187,8 +187,8 @@ laurent2:
 clean::
 	rm -f *$(HA_EXT) *$(LK_EXT) *$(XK_EXT)
 test: unsigned_gem
-	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style1.knxproj
-	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style2.knxproj
-	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style3.knxproj --comment-skipped
-	$(CLI_PATH) --fix $(CODE)/generic.rb $(DIR_SAMPLES)/Style3.knxproj --addr Free
+	$(CLI_PATH) $(DIR_SAMPLES)/Style1.knxproj --fix $(CODE)/generic.rb
+	$(CLI_PATH) $(DIR_SAMPLES)/Style2.knxproj --fix $(CODE)/generic.rb
+	$(CLI_PATH) $(DIR_SAMPLES)/Style3.knxproj --fix $(CODE)/generic.rb --comment-skipped
+	$(CLI_PATH) $(DIR_SAMPLES)/Style3.knxproj --fix $(CODE)/generic.rb --addr Free
 	$(CLI_PATH) $(DIR_SAMPLES)/encrypted_pass_a.knxproj --password=a

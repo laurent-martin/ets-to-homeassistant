@@ -150,15 +150,15 @@ If the project file is password protected then provide the password using the op
 * It extracts **ETS Building Information** and **KNX Group Address**es.
 * A Ruby object of type: `EtsToHass` is created, with the following fields:
 
-  `@groups_addresses` contains all **KNX Group Address**es, `_gaid_` is the internal identifier of the **KNX Group Address** in ETS
+  `@groups_addresses` is a Hash that contains all **KNX Group Address**es, `_gaid_` is the internal identifier of the **KNX Group Address** in ETS
 
-  `@objects` contains all **ETS Function**, `_obid_` is the internal identifier of the **ETS Function** in ETS
+  `@objects` is a Hash that contains all **ETS Function**, `_obid_` is the internal identifier of the **ETS Function** in ETS
 
 ```ruby
 @groups_addresses = {
   _gaid_ => {
-   name:             "from ETS",
-   description:      "from ETS",
+   name:             "from ETS", # for log messages
+   description:      "from ETS", # used for additional information, see below
    address:          "x/y/z", # group address
    datapoint:        "x.abc", # datapoint type, e.g. 1.001,
    ha:               {address_type: '...' } # set by specific code, HA parameter for address
@@ -168,20 +168,19 @@ If the project file is password protected then provide the password using the op
   _obid_ => {
    name:   "from ETS, either function name or full name with room if option --full-name is used",
    type:   "ETS function type, see below",
-   floor:  "from ETS",
-   room:   "from ETS",
+   floor:  "from ETS", # not used
+   room:   "from ETS", # for log messages
    ha:     {domain: '...', ha parameters... } # set by specific code, HA parameters
   },...
  }
 @associations = [[_gaid_,_obid_],...]
 ```
 
-* a default mapping is proposed in methods:
+* A default mapping for HA devices is proposed based on the ETS functions, see [HA information from ETS objects](#ha-information-from-ets-objects)
   
-  * `map_ets_datapoint_to_ha_address_type` : default value for `@group_addresses[x][:ha][:address_type]`
-  * `map_ets_function_to_ha_object_category` : default value for `@objects[x][:ha][:domain]`
+* the description of the group address is used to set HA parameters, see [HA information from ETS group address description](#ha-information-from-ets-group-address-description)
 
-* the custom specific code is called giving an opportunity to modify this structure.
+* custom specific code is called if provided and gives an opportunity to modify this structure, see [HA information using custom script](#ha-information-using-custom-script)
 
 * Eventually, the HA configuration is generated
 
@@ -214,7 +213,92 @@ The type of **ETS Function** is identified by a name (in ETS project file it is 
 * `:heating_switching_variable`
 * `:heating_continuous_variable`
 
-## Custom method
+## HA information from ETS objects
+
+ETS objects are directly mapped to HA devices using the following methods:
+
+* `map_ets_datapoint_to_ha_address_type` : default value for `@group_addresses[x][:ha][:address_type]`
+* `map_ets_function_to_ha_object_category` : default value for `@objects[x][:ha][:domain]`
+
+## HA information from ETS group address description
+
+If you want to have direct control on the HA configuration, you can use the description of the group address to set HA parameters.
+
+Parameters are set in the description of the group address, using the following format:
+
+* One line in description containing only: `==ha==`
+* The rest of the description contains the HA parameters, formatted as YAML.
+
+For example:
+
+```yaml
+My own description
+blah.
+==ha==
+address_type: state_address
+device_name: My light
+domain: light
+other: value
+```
+
+The following rules apply:
+
+* The field `address_type` defines the type of address used in HA for this group address. Typically, `address` or `state_address` or the applicable `*_address` type corresponding to this group address.
+* The field `device_name` defines the name of the HA device. If multiple group addresses are grouped in the same HA device, then `device_name` shall be the same for each of them.
+* The field `domain` must be set **once** in one of the group address belonging to the same HA device. It defines the type of the HA device.
+* All other fields are optional and will be added to the HA device as extra parameters.
+
+Example: In an ETS project, neither **Functions** nor **datapoint types** are used.
+Two group addresses are defined with the following description:
+
+* `1/1/1`, name: `Light 1 ON/OFF`, Description:
+
+  ```yaml
+  Light in kitchen
+  ==ha==
+  address_type: address
+  device_name: Kitchen Light
+  domain: light
+  ```
+
+* `1/2/1`, name: `Light 1 Status`, Description:
+
+  ```yaml
+  Light in kitchen
+  ==ha==
+  address_type: state_address
+  device_name: Kitchen Light
+  ```
+
+* `1/3/1`, name: `Light 1 Dim`, Description:
+
+  ```yaml
+  Light in kitchen dimming
+  ==ha==
+  address_type: brightness_address
+  device_name: Kitchen Light
+  min_kelvin: 3000
+  ```
+
+Note that the 3 group addresses are grouped together in a single HA device because they shared the same value for `device_name`.
+
+The resulting HA configuration will be:
+
+```yaml
+knx:
+  light:
+    - name: "Kitchen Light"
+    - address: "1/1/1"
+    - state_address: "1/2/1"
+    - brightness_address: "1/3/1" 
+    - min_kelvin: 3000
+```
+
+This method allows easily to set HA parameters directly using only group addresses.
+
+If using ETS functions, then HA parameters can be placed the same way in the description.
+
+## HA information using custom script
 
 If the **KNX Data Point Type** of a **KNX Group Address** is not defined in the ETS project, then the tool cannot guess which group address is e.g. for On/Off, or for dimming value.
 
@@ -250,10 +334,6 @@ def fix_objects(generator)
 end
 ```
 
-## Description method
-
-TODO
-
 ## Linknx
 
 `linknx` does not have an object concept, and needs only group addresses.
@@ -265,8 +345,3 @@ Support is dropped for the moment, until needed, but it is close enough to HA.
 ## Reporting issues
 
 Include the version of ETS used and logs.
-
-## TODO
-
-One possibility would be to add extra information in the description of the group address and/or function in ETS, and then parse it in the tool.
-For example, as YAML format.

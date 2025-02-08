@@ -33,7 +33,9 @@ module EtsToHass
       %i[custom switchable_light dimmable_light sun_protection heating_radiator heating_floor
          dimmable_light sun_protection heating_switching_variable heating_continuous_variable].freeze
     NOT_IMPLEMENTED = 'not_implemented'
-    private_constant :ETS_EXT, :ETS_FUNCTIONS_INDEX_TO_NAME, :NOT_IMPLEMENTED
+    DESCR_MARKER = /^==ha==$/.freeze
+    ETS_SALT = '21.project.ets.knx.org'
+    private_constant :ETS_EXT, :ETS_FUNCTIONS_INDEX_TO_NAME, :NOT_IMPLEMENTED, :DESCR_MARKER, :ETS_SALT
 
     # class methods
     class << self
@@ -44,7 +46,7 @@ module EtsToHass
         Base64.strict_encode64(
           OpenSSL::PKCS5.pbkdf2_hmac(
             password.encode('utf-16le'),
-            '21.project.ets.knx.org',
+            ETS_SALT,
             65_536,
             32,
             OpenSSL::Digest.new('sha256')
@@ -193,6 +195,39 @@ module EtsToHass
       group['GroupAddress'].each { |group_address_info| process_ga(group_address_info) } if group.key?('GroupAddress')
     end
 
+    def extract_ha_from_description(description)
+      return nil if description.nil?
+      split_info = description.split(DESCR_MARKER, 2)
+      return nil unless split_info.length.eql?(2)
+      YAML.safe_load(split_info[1])
+    end
+
+    def process_ga_description(group, group_address_id)
+      add_info = extract_ha_from_description(group[:description])
+      return if add_info.nil?
+      address_type = add_info.delete('address_type')
+      group[:ha][:address_type] = address_type unless address_type.nil?
+      object_name = add_info.delete('device_name')
+      if object_name.nil?
+        warning(group[:address], group[:name], 'additinal info in group address without device_name') unless add_info.empty?
+        return
+      end
+      # for the time being, the object id is the device name, we assume it is unique
+      object_id = object_name
+      ets_object = object(object_id)
+      unless ets_object
+        # declare new object on the fly
+        ets_object = {
+          name: object_name,
+          type: nil,
+          ha:   { domain: nil } # hone assistant values
+        }
+        add_object(object_id, ets_object)
+      end
+      ets_object[:ha].merge!(add_info)
+      associate(ga_id: group_address_id, object_id: object_id)
+    end
+
     # process a group address
     def process_ga(group_address_info)
       # build object for each group address
@@ -203,6 +238,7 @@ module EtsToHass
         datapoint:   nil, # datapoint type as string "x.00y"
         ha:          { address_type: nil } # prepared to be potentially modified by specific code
       }
+      process_ga_description(group, group_address_info['Id'])
       if group_address_info['DatapointType'].nil?
         warning(group[:address], group[:name], 'no datapoint type for address group, to be defined in ETS, skipping')
         return
@@ -245,7 +281,6 @@ module EtsToHass
         # @logger.debug("function #{ets_function}")
         # ignore functions without group address
         next unless ets_function.key?('GroupAddressRef')
-
         # the ETS object, created from ETS function
         ets_object = {
           name: ets_function['Name'],
@@ -253,6 +288,8 @@ module EtsToHass
           ha:   { domain: nil } # hone assistant values
         }.merge(info)
         add_object(ets_function['Id'], ets_object)
+        add_info = extract_ha_from_description(ets_function['Description'])
+        ets_object[:ha].merge!(add_info) unless add_info.nil?
         ets_function['GroupAddressRef'].map { |g| g['RefId'] }.each do |group_address_id|
           associate(ga_id: group_address_id, object_id: ets_function['Id'])
         end
