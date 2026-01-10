@@ -8,6 +8,8 @@ require 'logger'
 require 'fileutils'
 require 'ets_to_hass/string_colors'
 require 'ets_to_hass/info'
+require 'io/console'
+require 'base64'
 
 module EtsToHass
   # Import ETS project file and generate configuration for Home Assistant and KNXWeb
@@ -68,7 +70,9 @@ module EtsToHass
       @logger.level = @opts.key?(:trace) ? @opts[:trace] : Logger::INFO
       @logger.debug("options: #{@opts}")
       # read .knxproj file xml into project variable
+      # project = @opts.key?(:password) ? read_file(file, password: @opts[:password]) : read_file(file)
       project = read_file(file)
+
       # find out address style
       proj_info = self.class.dig_xml(project[:info], %w[Project ProjectInformation])
       @group_addr_style = (@opts[:addr] || proj_info['GroupAddressStyle']).to_sym
@@ -102,26 +106,107 @@ module EtsToHass
       GROUP_ADDRESS_PARSERS[@group_addr_style].call(group_address.to_i).freeze
     end
 
-    # Read both project.xml and 0.xml
-    # @return Hash {info: xml data, data: xml data}
-    def read_file(file)
-      raise "ETS file must end with #{ETS_EXT}" unless file.end_with?(ETS_EXT)
+    def read_file(zip_path, password: '')
+      project_data = nil
+      zero_data = nil
 
-      project = {}
-      # read ETS5 file and get project file
-      Zip::File.open(file) do |zip_file|
-        zip_file.each do |entry|
-          case entry.name
-          when %r{P-[^/]+/project\.xml$}
-            project[:info] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => true })
-          when %r{P-[^/]+/0\.xml$}
-            project[:data] = XmlSimple.xml_in(entry.get_input_stream.read, { 'ForceArray' => true })
+      inner_zip_re     = /\AP-[\w]+\.zip\z/
+      project_path_re  = %r{\AP-[\w]+/project\.xml\z}
+      zero_path_re     = %r{\AP-[\w]+/0\.xml\z}
+
+      Zip::File.open(zip_path) do |zf|
+        # Case A: direct folder P-xxxxx/
+        proj_entry = zf.entries.find { |e| e.name =~ project_path_re && !e.directory? }
+        zero_entry = zf.entries.find { |e| e.name =~ zero_path_re    && !e.directory? }
+        if proj_entry && zero_entry
+          project_data = zf.read(proj_entry.name)
+          zero_data    = zf.read(zero_entry.name)
+        end
+
+        # Case B: nested P-xxxxx.zip (encrypted)
+        if project_data.nil? || zero_data.nil?
+          inner_entry = zf.entries.find { |e| e.name =~ inner_zip_re && !e.directory? }
+          if inner_entry
+            inner_bytes = zf.read(inner_entry.name)
+            # try a sequence of decrypters until one works
+            IO.console.puts 'Your KNX project is password protected!'
+            password = IO.console.getpass('Enter password: ')
+
+            decrypters = []
+            begin
+              decrypters << Zip::AESDecrypter.new(ets6_encrypt_password(password), Zip::AESEncryption::STRENGTH_256_BIT)
+              decrypters << Zip::AESDecrypter.new(ets6_encrypt_password(password), Zip::AESEncryption::STRENGTH_128_BIT)
+            rescue NameError
+              # AES classes not available (older rubyzip), skip AES variants
+            end
+            begin
+              decrypters << Zip::TraditionalDecrypter.new(password)
+            rescue NameError
+            end
+
+            decrypters << nil
+
+            last_error = nil
+            decrypters.each do |dec|
+              project_data, zero_data = read_two_from_inner_zip(inner_bytes, decrypter: dec, need_project: project_data.nil?, need_zero: zero_data.nil?)
+              break if project_data && zero_data
+            rescue StandardError => e
+              # Bad password / wrong decrypter leads to errors on get_next_entry/read; try next decrypter
+              last_error = "Wrong password or the ETS uses an unknown encryption method (supported are AES256, AES128, ZipCrypto-Deflate):\n #{e}"
+              next
+            end
+
+            raise(last_error || RuntimeError.new('Failed to read encrypted inner zip')) if project_data.nil? || zero_data.nil?
           end
         end
       end
-      raise "Did not find project information or data (#{project.keys})" unless project.keys.sort.eql?(%i[data info])
 
+      raise 'project.xml not found' unless project_data
+      raise '0.xml not found' unless zero_data
+
+      project = {
+        info: XmlSimple.xml_in(project_data, { 'ForceArray' => true }),
+        data: XmlSimple.xml_in(zero_data, { 'ForceArray' => true })
+      }
+
+      raise "Did not find project information or data (#{project.keys})" unless project.keys.sort.eql?(%i[data info])
       project
+    end
+
+    def read_two_from_inner_zip(bytes, decrypter:, need_project:, need_zero:)
+      proj = nil
+      zero = nil
+      # Use InputStream so we can pass decrypter; read sequentially
+      Zip::InputStream.open(StringIO.new(bytes), decrypter: decrypter) do |input|
+        loop do
+          entry = input.get_next_entry
+          break unless entry
+          if need_project && entry.name == 'project.xml'
+            proj = input.read
+          elsif need_zero && entry.name == '0.xml'
+            zero = input.read
+          else
+            # consume entry to move stream forward
+            input.read
+          end
+          break if (!need_project || proj) && (!need_zero || zero)
+        end
+      end
+      [proj, zero]
+    end
+
+    def ets6_encrypt_password(password_utf8)
+      # ETS6 derives from UTF-16LE bytes of the entered password
+
+      utf16le_bytes = password_utf8.encode('UTF-16LE')
+      key = OpenSSL::KDF.pbkdf2_hmac(
+        utf16le_bytes,
+        salt:       '21.project.ets.knx.org'.b,
+        iterations: 65_536,
+        length:     32,
+        hash:       'sha256'
+      )
+      Base64.strict_encode64(key)
     end
 
     # process group range recursively and find addresses

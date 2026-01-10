@@ -1,0 +1,105 @@
+---
+switch:
+  - name: Steckdosen Alle linken Durchgangsraum+UV Dachgeschoss
+    address: 0/0/15
+    state_address: 0/1/15
+  - name: Präsenzmelder Sperre Durchgangsraum+UV Dachgeschoss
+    address: 5/4/44
+    state_address: 5/4/52
+  - name: Präsenzmelder Sperre Speis+UV Erdgeschoss
+    state_address: 11/4/88
+    address: 11/4/79
+  
+light:
+  - name: Licht Haupt Durchgangsraum+UV Dachgeschoss
+    brightness_address: 1/6/7
+    brightness_state_address: 1/3/9
+    state_address: 1/1/9
+    address: 1/0/9
+  - name: Licht Indirekte Treppenhaus Dachgeschoss
+    brightness_address: 1/6/19
+    color_temperature_state_address: 1/5/35
+    brightness_state_address: 1/3/35
+    state_address: 1/1/35
+    address: 1/0/35
+    color_temperature_address: 1/7/0
+  - name: Licht Indirekte RGB Bad Dachgeschoss
+    brightness_address: 1/6/6
+    color_state_address: 1/5/30
+    color_address: 1/7/30
+    brightness_state_address: 1/3/30
+    state_address: 1/1/30
+    address: 1/0/30
+  
+binary_sensor:
+  - name: Sensor Präsenz Durchgangsraum+UV Dachgeschoss
+    sync_state: true
+    device_class: motion
+    state_address: 5/4/26
+  - name: Sensor Fensterkontakt Kind1 Dachgeschoss
+    sync_state: true
+    device_class: window
+    state_address: 5/4/32
+  - name: Sensor Behaglich Kind2 Dachgeschoss
+    sync_state: true
+    state_address: 5/4/14
+  - name: Sensor Windalarm Dach Wetterstation Zentral
+    sync_state: true
+    device_class: problem
+    state_address: 22/0/0
+  - name: Sensor Nacht Dach Wetterstation Zentral
+    sync_state: true
+    state_address: 24/2/4
+sensor:
+  - name: Sensor Helligkeit Treppenhaus Dachgeschoss
+    sync_state: true
+    type: illuminance
+    state_address: 5/4/38
+  - name: Sensor Luftfeuchte Kind1 Dachgeschoss
+    sync_state: true
+    type: humidity
+    state_address: 5/4/6
+  - name: Sensor Taupunkt Kind1 Dachgeschoss
+    sync_state: true
+    type: temperature
+    state_address: 5/4/8
+  - name: Sensor Temperatur Decke Kind1 Dachgeschoss
+    sync_state: true
+    type: temperature
+    state_address: 5/4/5
+  - name: Sensor Strommessung TV-Wand Rechte SD Wohnzimmer Erdgeschoss
+    sync_state: true
+    type: curr
+    state_address: 11/4/3
+  - name: Sensor HelligkeitSüd Dach Wetterstation Zentral
+    sync_state: true
+    type: illuminance
+    state_address: 24/2/1
+  - name: Sensor Windgeschwindigkeit Dach Wetterstation Zentral
+    sync_state: true
+    type: wind_speed_ms
+    state_address: 24/2/5
+climate:
+  - name: FB Heizung Flur Dachgeschoss
+    temperature_step: 0.5
+    setpoint_shift_mode: DPT9002
+    target_temperature_state_address: 3/1/6
+    setpoint_shift_address: 3/2/6
+    setpoint_shift_state_address: 3/3/6
+    command_value_state_address: 3/4/5
+    operation_mode_address: 3/5/6
+    operation_mode_state_address: 3/6/6
+    temperature_address: 3/0/6
+cover:
+  - name: Rollo Dachfenster Kind1 Dachgeschoss
+    move_long_address: 2/0/9
+    stop_address: 2/1/9
+    position_address: 2/3/9
+    position_state_address: 2/4/8
+  - name: Jalousie Schlafen Dachgeschoss
+    angle_address: 2/5/0
+    move_long_address: 2/0/1
+    stop_address: 2/1/1
+    position_address: 2/3/1
+    position_state_address: 2/4/1
+    angle_state_address: 2/6/0

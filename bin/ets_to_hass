@@ -8,6 +8,10 @@ begin
   require 'ets_to_hass/string_colors'
   require 'ets_to_hass/generator'
   require 'getoptlong'
+  # to enable packagin to exe (sub dependencies that get not recognized by ocran)
+  require 'matrix'
+  require 'rake'
+  require 'yaml'
 rescue LoadError => e
   puts(e.backtrace.join("\n"))
   puts("Missing gems (#{e}): read the manual: execute:")
@@ -24,6 +28,7 @@ gene_formats = (EtsToHass::Generator.instance_methods - EtsToHass::Generator.sup
 
 opts = GetoptLong.new(
   ['--help', '-h', GetoptLong::NO_ARGUMENT],
+  # ['--password', '-p', GetoptLong::REQUIRED_ARGUMENT],
   ['--ha-knx', '-k', GetoptLong::NO_ARGUMENT],
   ['--sort-by-name', '-r', GetoptLong::NO_ARGUMENT],
   ['--full-name', '-n', GetoptLong::NO_ARGUMENT],
@@ -70,6 +75,8 @@ opts.each do |opt, arg|
             add room name in object name
     END_OF_MANUAL
     Process.exit(1)
+  # when '--password'
+  #   options[:password] = arg
   when '--fix'
     options[:specific] = arg
   when '--format'
@@ -97,12 +104,22 @@ if ARGV.length != 1
   Process.exit(1)
 end
 
-output_file =
-  if options[:output]
-    File.open(options[:output], 'w')
-  else
-    $stdout
-  end
+# TheFelix93 fix to create folder of path of not existing.
+
+# output_file =
+#   if options[:output]
+#     File.open(options[:output], 'w')
+#   else
+#     $stdout
+#   end
+
+path = options[:output]
+output_file = if path && !path.empty?
+                FileUtils.mkdir_p(File.dirname(path))
+                File.open(path, 'w')
+              else
+                $stdout
+              end
 project_file_path = ARGV.shift
 
 # read and parse ETS file
