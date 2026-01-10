@@ -302,6 +302,7 @@ module EtsToHass
     def map_ets_datapoint_to_ha_address_type(group_address, ha_object_domain)
       case group_address[:datapoint]
       when '1.001' then 'address' # switch on/off or state
+      when '1.007' then 'move_short_address'  # step
       when '1.008' then 'move_long_address' # up/down
       when '1.010' then 'stop_address' # stop
       when '1.011' then 'state_address' # switch state
